@@ -309,8 +309,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
                 <h3 className="font-semibold">Repository Visibility Warning</h3>
               </div>
               <p className="text-gray-300 mb-4">
-                User <span className="font-semibold">{userRepoStats.username}</span> has {userRepoStats.publicRepos} public repositories 
-                out of {userRepoStats.totalRepos} total repositories.
+                CheckMyGitHub detected <b>{userRepoStats.publicRepos}</b> public repositories in {userRepoStats.username}'s account.
               </p>
               <Button
                 variant="outline"
