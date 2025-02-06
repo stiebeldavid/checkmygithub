@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Lock, AlertTriangle, Github } from "lucide-react";
+import { Lock, AlertTriangle, Github, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "./LoadingSpinner";
 import RepoStats from "./RepoStats";
@@ -16,6 +16,12 @@ interface RepoCheckerProps {
   initialRepoUrl?: string;
 }
 
+interface UserRepoStats {
+  totalRepos: number;
+  publicRepos: number;
+  username: string;
+}
+
 const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
   const [loading, setLoading] = useState(false);
   const [repoData, setRepoData] = useState<any>(null);
@@ -25,6 +31,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
   const [authenticating, setAuthenticating] = useState(false);
   const [secretScanResults, setSecretScanResults] = useState<any>(null);
   const [selectedOption, setSelectedOption] = useState<string>();
+  const [userRepoStats, setUserRepoStats] = useState<UserRepoStats | null>(null);
 
   const extractRepoInfo = (url: string) => {
     try {
@@ -38,12 +45,45 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     }
   };
 
+  const fetchUserRepoStats = async (username: string, credentials: any) => {
+    try {
+      const response = await fetch(`https://api.github.com/users/${username}`, {
+        headers: {
+          Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.secret}`)}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch user data: ${response.statusText}`);
+      }
+
+      const userData = await response.json();
+      setUserRepoStats({
+        totalRepos: userData.public_repos,
+        publicRepos: userData.public_repos,
+        username: username
+      });
+
+      if (userData.public_repos > 0) {
+        toast.warning(
+          `${username} has ${userData.public_repos} public repositories that could be exposing sensitive information.`,
+          {
+            duration: 6000,
+          }
+        );
+      }
+    } catch (error) {
+      console.error("Error fetching user repository stats:", error);
+    }
+  };
+
   const handleSubmit = async (repoUrl: string) => {
     setLoading(true);
     setRepoData(null);
     setNotFoundOrPrivate(false);
     setCurrentRepoUrl(repoUrl);
     setSecretScanResults(null);
+    setUserRepoStats(null);
 
     try {
       const repoInfo = extractRepoInfo(repoUrl);
@@ -59,6 +99,9 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         toast.error("Failed to authenticate with GitHub");
         return;
       }
+
+      // Fetch user repo stats first
+      await fetchUserRepoStats(repoInfo.owner, credentials);
 
       const response = await fetch(`https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}`, {
         headers: {
@@ -128,7 +171,13 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     }
   };
 
-  // Add event listener for auto-scan
+  const handleScanAllRepos = () => {
+    if (userRepoStats) {
+      setSelectedOption('enterprise');
+      setShowSignUp(true);
+    }
+  };
+
   useEffect(() => {
     const handleAutoScan = (event: CustomEvent<{ repoUrl: string }>) => {
       handleSubmit(event.detail.repoUrl);
@@ -252,6 +301,26 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
           <div className="max-w-2xl mx-auto mt-12 mb-16">
             <RepoForm onSubmit={handleSubmit} loading={loading} initialValue={initialRepoUrl} />
           </div>
+
+          {userRepoStats && (
+            <div className="max-w-2xl mx-auto mb-8 text-left bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
+              <div className="flex items-center gap-2 text-yellow-400 mb-2">
+                <Globe className="w-5 h-5" />
+                <h3 className="font-semibold">Repository Visibility Warning</h3>
+              </div>
+              <p className="text-gray-300 mb-4">
+                User <span className="font-semibold">{userRepoStats.username}</span> has {userRepoStats.publicRepos} public repositories 
+                out of {userRepoStats.totalRepos} total repositories.
+              </p>
+              <Button
+                variant="outline"
+                className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10"
+                onClick={handleScanAllRepos}
+              >
+                Scan All Repositories
+              </Button>
+            </div>
+          )}
 
           {repoData && (
             <div className="space-y-16">
