@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Lock, AlertTriangle, Github, Globe } from "lucide-react";
+import { Lock, AlertTriangle, Github, Globe, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "./LoadingSpinner";
 import RepoStats from "./RepoStats";
@@ -11,6 +11,11 @@ import Pricing from "./Pricing";
 import ScanningAnimation from "./ScanningAnimation";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 interface RepoCheckerProps {
   initialRepoUrl?: string;
@@ -20,6 +25,11 @@ interface UserRepoStats {
   totalRepos: number;
   publicRepos: number;
   username: string;
+  publicReposList?: Array<{
+    name: string;
+    url: string;
+    description?: string;
+  }>;
 }
 
 const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
@@ -58,10 +68,30 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
       }
 
       const userData = await response.json();
+
+      // Fetch public repositories list
+      const reposResponse = await fetch(`https://api.github.com/users/${username}/repos`, {
+        headers: {
+          Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.secret}`)}`,
+        },
+      });
+
+      if (!reposResponse.ok) {
+        throw new Error(`Failed to fetch repositories: ${reposResponse.statusText}`);
+      }
+
+      const reposData = await reposResponse.json();
+      const publicReposList = reposData.map((repo: any) => ({
+        name: repo.name,
+        url: repo.html_url,
+        description: repo.description,
+      }));
+
       setUserRepoStats({
         totalRepos: userData.public_repos,
         publicRepos: userData.public_repos,
-        username: username
+        username: username,
+        publicReposList,
       });
 
       if (userData.public_repos > 0) {
@@ -311,9 +341,34 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
               <p className="text-gray-300 mb-4">
                 CheckMyGitHub detected <b>{userRepoStats.publicRepos}</b> public repositories in {userRepoStats.username}'s account.
               </p>
+              {userRepoStats.publicReposList && userRepoStats.publicReposList.length > 0 && (
+                <Collapsible className="w-full space-y-2">
+                  <CollapsibleTrigger className="flex items-center gap-2 text-sm text-yellow-400 hover:text-yellow-300">
+                    <ChevronDown className="h-4 w-4" />
+                    View all public repositories
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-2">
+                    {userRepoStats.publicReposList.map((repo) => (
+                      <div key={repo.name} className="bg-black/20 p-3 rounded">
+                        <a
+                          href={repo.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-yellow-400 hover:text-yellow-300 font-medium"
+                        >
+                          {repo.name}
+                        </a>
+                        {repo.description && (
+                          <p className="text-sm text-gray-400 mt-1">{repo.description}</p>
+                        )}
+                      </div>
+                    ))}
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
               <Button
                 variant="outline"
-                className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10"
+                className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10 mt-4"
                 onClick={handleScanAllRepos}
               >
                 Scan All Repositories
