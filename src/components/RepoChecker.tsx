@@ -1,4 +1,3 @@
-
 import { useState, useRef, useEffect } from "react";
 import { Lock, AlertTriangle, Github, Globe, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -211,34 +210,31 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     }
   };
 
-  const handleScanAllRepos = () => {
-    if (userRepoStats) {
-      setSelectedOption('enterprise');
-      scrollToPricing();
+  const handleScanAllRepos = async () => {
+    try {
+      // Record the signup attempt
+      await supabase.from('Signups').insert({
+        github_url: currentRepoUrl,
+        option_chosen: 'Scan Now button'
+      });
+    } catch (error) {
+      console.error('Error recording signup:', error);
     }
-  };
-
-  const handleScanRepo = (repoUrl: string) => {
-    window.open(`${window.location.origin}/${repoUrl.replace('https://github.com/', '')}`, '_blank');
     scrollToPricing();
   };
 
-  useEffect(() => {
-    const handleAutoScan = (event: CustomEvent<{ repoUrl: string }>) => {
-      handleSubmit(event.detail.repoUrl);
-    };
-
-    window.addEventListener('auto-scan', handleAutoScan as EventListener);
-    
-    // If initialRepoUrl is provided, trigger scan automatically
-    if (initialRepoUrl) {
-      handleSubmit(initialRepoUrl);
+  const handleScanRepo = async (repoUrl: string) => {
+    try {
+      // Record the signup attempt
+      await supabase.from('Signups').insert({
+        github_url: repoUrl,
+        option_chosen: 'Scan Now button'
+      });
+    } catch (error) {
+      console.error('Error recording signup:', error);
     }
-
-    return () => {
-      window.removeEventListener('auto-scan', handleAutoScan as EventListener);
-    };
-  }, []);
+    scrollToPricing();
+  };
 
   const handleGitHubAuth = async () => {
     try {
@@ -322,6 +318,23 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     scrollToPricing();
   };
 
+  useEffect(() => {
+    const handleAutoScan = (event: CustomEvent<{ repoUrl: string }>) => {
+      handleSubmit(event.detail.repoUrl);
+    };
+
+    window.addEventListener('auto-scan', handleAutoScan as EventListener);
+    
+    // If initialRepoUrl is provided, trigger scan automatically
+    if (initialRepoUrl) {
+      handleSubmit(initialRepoUrl);
+    }
+
+    return () => {
+      window.removeEventListener('auto-scan', handleAutoScan as EventListener);
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 text-white">
       <div className="max-w-7xl mx-auto px-4 py-12">
@@ -381,10 +394,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
                           variant="outline"
                           size="sm"
                           className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10 ml-4"
-                          onClick={() => {
-                            handleScanRepo(repo.url);
-                            scrollToPricing();
-                          }}
+                          onClick={() => handleScanRepo(repo.url)}
                         >
                           Scan Now
                         </Button>
@@ -420,10 +430,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
                               variant="outline"
                               size="sm"
                               className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10 ml-4"
-                              onClick={() => {
-                                handleScanRepo(repo.url);
-                                scrollToPricing();
-                              }}
+                              onClick={() => handleScanRepo(repo.url)}
                             >
                               Scan Now
                             </Button>
@@ -526,8 +533,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
           {!repoData && !loading && !notFoundOrPrivate && (
             <>
               <HowItWorks />
-              <Pricing onPlanSelect={handleShowSignUp} />
-              <SecurityBestPractices />
             </>
           )}
         </div>
@@ -554,10 +559,12 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
                 </div>
               </div>
             )}
-            <Pricing onPlanSelect={handleShowSignUp} />
-            <SecurityBestPractices />
           </div>
         )}
+
+        <Pricing onPlanSelect={handleShowSignUp} />
+        <SecurityBestPractices />
+        <HowItWorks />
       </div>
     </div>
   );
