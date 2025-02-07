@@ -1,3 +1,4 @@
+
 import { useState, useRef, useEffect } from "react";
 import { Lock, AlertTriangle, Github, Globe, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -524,9 +525,9 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
 
           {!repoData && !loading && !notFoundOrPrivate && (
             <>
-              <SecurityBestPractices />
               <HowItWorks />
               <Pricing onPlanSelect={handleShowSignUp} />
+              <SecurityBestPractices />
             </>
           )}
         </div>
@@ -554,6 +555,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
               </div>
             )}
             <Pricing onPlanSelect={handleShowSignUp} />
+            <SecurityBestPractices />
           </div>
         )}
       </div>
