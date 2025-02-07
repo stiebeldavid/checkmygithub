@@ -3,7 +3,6 @@ import { Lock, AlertTriangle, Github, Globe, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "./LoadingSpinner";
 import RepoStats from "./RepoStats";
-import SignUpForm from "./SignUpForm";
 import RepoForm from "./RepoForm";
 import SecurityBestPractices from "./SecurityBestPractices";
 import HowItWorks from "./HowItWorks";
@@ -38,7 +37,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
   const [repoData, setRepoData] = useState<any>(null);
   const [notFoundOrPrivate, setNotFoundOrPrivate] = useState(false);
   const [currentRepoUrl, setCurrentRepoUrl] = useState(initialRepoUrl || "");
-  const [showSignUp, setShowSignUp] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
   const [secretScanResults, setSecretScanResults] = useState<any>(null);
   const [selectedOption, setSelectedOption] = useState<string>();
@@ -215,7 +213,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
   const handleScanAllRepos = () => {
     if (userRepoStats) {
       setSelectedOption('enterprise');
-      setShowSignUp(true);
       scrollToPricing();
     }
   };
@@ -321,7 +318,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
 
   const handleShowSignUp = (option: string) => {
     setSelectedOption(option);
-    setShowSignUp(true);
+    scrollToPricing();
   };
 
   return (
@@ -560,12 +557,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
           </div>
         )}
       </div>
-      <SignUpForm 
-        open={showSignUp} 
-        onOpenChange={setShowSignUp}
-        selectedOption={selectedOption}
-        currentRepoUrl={currentRepoUrl}
-      />
     </div>
   );
 };

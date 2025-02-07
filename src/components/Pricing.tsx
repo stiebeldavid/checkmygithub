@@ -2,7 +2,6 @@
 import { Button } from "@/components/ui/button";
 import { CheckCircle } from "lucide-react";
 import { useState } from "react";
-import SignUpForm from "./SignUpForm";
 import { loadStripe } from "@stripe/stripe-js";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -14,8 +13,6 @@ interface PricingProps {
 }
 
 const Pricing = ({ onPlanSelect }: PricingProps) => {
-  const [showSignUp, setShowSignUp] = useState(false);
-  const [selectedOption, setSelectedOption] = useState<string>("");
   const [loading, setLoading] = useState(false);
 
   const handlePayment = async (priceId: string, packageType: string) => {
@@ -114,12 +111,6 @@ const Pricing = ({ onPlanSelect }: PricingProps) => {
           </div>
         </div>
       </div>
-      
-      <SignUpForm 
-        open={showSignUp} 
-        onOpenChange={setShowSignUp}
-        selectedOption={selectedOption}
-      />
     </section>
   );
 };
