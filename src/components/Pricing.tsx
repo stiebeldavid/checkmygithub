@@ -86,7 +86,7 @@ const Pricing = ({ onPlanSelect }: PricingProps) => {
             </ul>
             <Button 
               className="w-full" 
-              onClick={() => handlePayment('price_single_scan', 'single')}
+              onClick={() => handlePayment('price_1QpuZAEPoH8pgr0ZmUYa7fiZ', 'single')}
               disabled={loading}
             >
               {loading ? "Processing..." : "Purchase Scan"}
