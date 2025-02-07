@@ -1,4 +1,3 @@
-
 import { Button } from "@/components/ui/button";
 import { CheckCircle } from "lucide-react";
 import { useState } from "react";
@@ -7,7 +6,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
+const stripePromise = loadStripe('pk_live_51QOYlLEPoH8pgr0ZPC9fzwlS3KCiLto7lH8lFRhu31I4H2ayTmQ6G5VKMAhrYkvwxCnYiiNrMaCF7HEkFFP6V34k00VYu2IAGJ');
 
 interface PricingProps {
   onPlanSelect: (option: string) => void;
