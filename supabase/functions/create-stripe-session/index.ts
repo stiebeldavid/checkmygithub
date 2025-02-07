@@ -18,11 +18,7 @@ serve(async (req) => {
   }
 
   try {
-    const { priceId, userId } = await req.json()
-
-    if (!userId) {
-      throw new Error('User must be logged in')
-    }
+    const { priceId } = await req.json()
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -35,9 +31,6 @@ serve(async (req) => {
       mode: 'payment',
       success_url: `${req.headers.get('origin')}/scan-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${req.headers.get('origin')}`,
-      metadata: {
-        userId: userId,
-      },
     })
 
     return new Response(
