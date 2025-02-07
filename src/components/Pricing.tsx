@@ -1,3 +1,4 @@
+
 import { Button } from "@/components/ui/button";
 import { CheckCircle } from "lucide-react";
 import { useState } from "react";
@@ -20,20 +21,9 @@ const Pricing = ({ onPlanSelect }: PricingProps) => {
   const handlePayment = async (priceId: string, packageType: string) => {
     setLoading(true);
     try {
-      const {
-        data: { session },
-        error,
-      } = await supabase.auth.getSession();
-
-      if (error || !session) {
-        toast.error("Please log in to purchase scans");
-        return;
-      }
-
       const { data, error: stripeError } = await supabase.functions.invoke('create-stripe-session', {
         body: {
           priceId,
-          userId: session.user.id,
         },
       });
 
