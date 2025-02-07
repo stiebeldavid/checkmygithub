@@ -450,7 +450,9 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
               <div className="bg-gray-800/50 p-6 rounded-lg border border-gray-700 text-left">
                 <div className="flex items-center gap-2 text-yellow-400 mb-4">
                   <Lock className="w-6 h-6" />
-                  <h3 className="text-lg font-semibold">Repository Not Accessible</h3>
+                  <h3 className="text-lg font-semibold">
+                    Repository Not Accessible: {currentRepoUrl.split('/').slice(-2).join('/')}
+                  </h3>
                 </div>
                 <p className="text-gray-300 mb-4">
                   This repository either doesn't exist or is private. 
