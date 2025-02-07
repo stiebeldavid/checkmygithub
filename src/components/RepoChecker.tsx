@@ -205,15 +205,24 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     }
   };
 
+  const scrollToPricing = () => {
+    const pricingSection = document.getElementById('pricing');
+    if (pricingSection) {
+      pricingSection.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
   const handleScanAllRepos = () => {
     if (userRepoStats) {
       setSelectedOption('enterprise');
       setShowSignUp(true);
+      scrollToPricing();
     }
   };
 
   const handleScanRepo = (repoUrl: string) => {
     window.open(`${window.location.origin}/${repoUrl.replace('https://github.com/', '')}`, '_blank');
+    scrollToPricing();
   };
 
   useEffect(() => {
@@ -374,7 +383,10 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
                           variant="outline"
                           size="sm"
                           className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10 ml-4"
-                          onClick={() => handleScanRepo(repo.url)}
+                          onClick={() => {
+                            handleScanRepo(repo.url);
+                            scrollToPricing();
+                          }}
                         >
                           Scan Now
                         </Button>
@@ -410,7 +422,10 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
                               variant="outline"
                               size="sm"
                               className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10 ml-4"
-                              onClick={() => handleScanRepo(repo.url)}
+                              onClick={() => {
+                                handleScanRepo(repo.url);
+                                scrollToPricing();
+                              }}
                             >
                               Scan Now
                             </Button>
