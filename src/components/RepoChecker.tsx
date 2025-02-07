@@ -29,6 +29,7 @@ interface UserRepoStats {
     name: string;
     url: string;
     description?: string;
+    size?: number;
   }>;
 }
 
@@ -81,11 +82,14 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
       }
 
       const reposData = await reposResponse.json();
-      const publicReposList = reposData.map((repo: any) => ({
-        name: repo.name,
-        url: repo.html_url,
-        description: repo.description,
-      }));
+      const publicReposList = reposData
+        .map((repo: any) => ({
+          name: repo.name,
+          url: repo.html_url,
+          description: repo.description,
+          size: repo.size, // Size in KB
+        }))
+        .sort((a: any, b: any) => (b.size || 0) - (a.size || 0)); // Sort by size descending
 
       setUserRepoStats({
         totalRepos: userData.public_repos,
@@ -96,7 +100,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
 
       if (userData.public_repos > 0) {
         toast.warning(
-          `${username} has ${userData.public_repos} public repositories that could be exposing sensitive information.`,
+          `CheckMyGitHub detected ${userData.public_repos} public repositories in ${username}'s account.`,
           {
             duration: 6000,
           }
@@ -206,6 +210,10 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
       setSelectedOption('enterprise');
       setShowSignUp(true);
     }
+  };
+
+  const handleScanRepo = (repoUrl: string) => {
+    window.open(`${window.location.origin}/${repoUrl.replace('https://github.com/', '')}`, '_blank');
   };
 
   useEffect(() => {
@@ -343,27 +351,74 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
               </p>
               {userRepoStats.publicReposList && userRepoStats.publicReposList.length > 0 && (
                 <Collapsible className="w-full space-y-2">
-                  <CollapsibleTrigger className="flex items-center gap-2 text-sm text-yellow-400 hover:text-yellow-300">
-                    <ChevronDown className="h-4 w-4" />
-                    View all public repositories
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="space-y-2">
-                    {userRepoStats.publicReposList.map((repo) => (
-                      <div key={repo.name} className="bg-black/20 p-3 rounded">
-                        <a
-                          href={repo.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-yellow-400 hover:text-yellow-300 font-medium"
+                  <div className="space-y-2">
+                    {userRepoStats.publicReposList.slice(0, 5).map((repo) => (
+                      <div key={repo.name} className="bg-black/20 p-3 rounded flex justify-between items-start">
+                        <div className="flex-1">
+                          <a
+                            href={repo.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-yellow-400 hover:text-yellow-300 font-medium"
+                          >
+                            {repo.name}
+                          </a>
+                          {repo.description && (
+                            <p className="text-sm text-gray-400 mt-1">{repo.description}</p>
+                          )}
+                          <p className="text-sm text-gray-500 mt-1">
+                            Size: {((repo.size || 0) / 1024).toFixed(2)} MB
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10 ml-4"
+                          onClick={() => handleScanRepo(repo.url)}
                         >
-                          {repo.name}
-                        </a>
-                        {repo.description && (
-                          <p className="text-sm text-gray-400 mt-1">{repo.description}</p>
-                        )}
+                          Scan Now
+                        </Button>
                       </div>
                     ))}
-                  </CollapsibleContent>
+                  </div>
+                  {userRepoStats.publicReposList.length > 5 && (
+                    <>
+                      <CollapsibleTrigger className="flex items-center gap-2 text-sm text-yellow-400 hover:text-yellow-300">
+                        <ChevronDown className="h-4 w-4" />
+                        View {userRepoStats.publicReposList.length - 5} more repositories
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="space-y-2">
+                        {userRepoStats.publicReposList.slice(5).map((repo) => (
+                          <div key={repo.name} className="bg-black/20 p-3 rounded flex justify-between items-start">
+                            <div className="flex-1">
+                              <a
+                                href={repo.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-yellow-400 hover:text-yellow-300 font-medium"
+                              >
+                                {repo.name}
+                              </a>
+                              {repo.description && (
+                                <p className="text-sm text-gray-400 mt-1">{repo.description}</p>
+                              )}
+                              <p className="text-sm text-gray-500 mt-1">
+                                Size: {((repo.size || 0) / 1024).toFixed(2)} MB
+                              </p>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10 ml-4"
+                              onClick={() => handleScanRepo(repo.url)}
+                            >
+                              Scan Now
+                            </Button>
+                          </div>
+                        ))}
+                      </CollapsibleContent>
+                    </>
+                  )}
                 </Collapsible>
               )}
               <Button
