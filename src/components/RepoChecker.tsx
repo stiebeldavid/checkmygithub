@@ -263,7 +263,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         return;
       }
 
-      const scope = `read:org repo:status repo:read public_repo read:repo_hook`;
+      const scope = `repo read:org admin:repo_hook`;
       
       const authWindow = window.open(
         `https://github.com/login/oauth/authorize?client_id=${credentials.clientId}&redirect_uri=${redirectUri}&scope=${scope}`,
