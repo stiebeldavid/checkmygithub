@@ -1,4 +1,3 @@
-
 import { useState, useRef, useEffect } from "react";
 import { Lock, AlertTriangle, Github, Globe, ChevronDown, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -378,6 +377,18 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     }
   };
 
+  const getAccessSettingsUrl = (repoUrl: string) => {
+    const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+    if (!match) return '';
+    const [, owner, repo] = match;
+    return `https://github.com/${owner}/${repo.replace(/\.git\/?$/, '')}/settings/access`;
+  };
+
+  const handleShowSignUp = (option: string) => {
+    setSelectedOption(option);
+    scrollToPricing();
+  };
+
   useEffect(() => {
     const handleAutoScan = (event: CustomEvent<{ repoUrl: string }>) => {
       handleSubmit(event.detail.repoUrl);
@@ -660,4 +671,3 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
 };
 
 export default RepoChecker;
-
