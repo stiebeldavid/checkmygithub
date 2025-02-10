@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Lock, AlertTriangle, Github, Globe, ChevronDown } from "lucide-react";
+import { Lock, AlertTriangle, Github, Globe, ChevronDown, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "./LoadingSpinner";
 import RepoStats from "./RepoStats";
@@ -361,6 +361,15 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     scrollToPricing();
   };
 
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error("Error logging out:", error);
+      toast.error("Failed to log out");
+    }
+  };
+
   useEffect(() => {
     const handleAutoScan = (event: CustomEvent<{ repoUrl: string }>) => {
       handleSubmit(event.detail.repoUrl);
@@ -381,6 +390,17 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 text-white">
       <div className="max-w-7xl mx-auto px-4 py-12">
+        <div className="flex justify-end mb-4">
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-gray-300 hover:text-white"
+            onClick={handleLogout}
+          >
+            <LogOut className="w-4 h-4 mr-2" />
+            Sign Out
+          </Button>
+        </div>
         <div className="text-center mb-12">
           <div className="max-w-3xl mx-auto space-y-6">
             {!loading && !repoData && !notFoundOrPrivate && (
