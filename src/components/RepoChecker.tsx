@@ -428,7 +428,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
             <Button
               variant="outline"
               size="sm"
-              className="text-gray-300 hover:text-white"
+              className="text-white hover:text-white hover:bg-gray-700/50"
               onClick={() => window.location.href = '/auth'}
             >
               Sign In
