@@ -118,6 +118,21 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     setUserRepoStats(null);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      // Get stored GitHub token if user is authenticated
+      let githubToken = null;
+      if (session) {
+        const { data: tokenData } = await supabase
+          .from('github_oauth_tokens')
+          .select('access_token')
+          .single();
+        
+        if (tokenData) {
+          githubToken = tokenData.access_token;
+        }
+      }
+
       const repoInfo = extractRepoInfo(repoUrl);
       if (!repoInfo) {
         toast.error("Could not parse repository URL. Please check the format.");
@@ -132,8 +147,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         return;
       }
 
-      // Get GitHub token from localStorage if available
-      const githubToken = localStorage.getItem('github_token');
+      // Use GitHub token if available, otherwise fall back to basic auth
       const authHeaders = githubToken 
         ? { Authorization: `Bearer ${githubToken}` }
         : { Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.secret}`)}` };
@@ -173,7 +187,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         console.log('Starting secret scan for:', repoUrl);
         const requestBody = { 
           repoUrl: repoUrl,
-          githubToken: githubToken // Pass the GitHub token to the edge function
+          githubToken: githubToken 
         };
         console.log('Request body:', requestBody);
         
@@ -247,6 +261,13 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
 
   const handleGitHubAuth = async () => {
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        toast.error("Please sign in to grant repository access");
+        return;
+      }
+
       const { data: credentials, error: credentialsError } = await supabase.functions.invoke('get-github-secret');
       
       if (credentialsError || !credentials) {
@@ -292,7 +313,20 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
 
             if (error) throw error;
 
-            localStorage.setItem('github_token', data.access_token);
+            // Store the token in Supabase
+            const { error: tokenError } = await supabase
+              .from('github_oauth_tokens')
+              .upsert({
+                user_id: session.user.id,
+                access_token: data.access_token,
+              }, {
+                onConflict: 'user_id'
+              });
+
+            if (tokenError) {
+              console.error('Error storing GitHub token:', tokenError);
+              throw new Error('Failed to store GitHub token');
+            }
             
             const savedRepoUrl = localStorage.getItem('pendingRepoUrl');
             if (savedRepoUrl) {
