@@ -132,12 +132,18 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         return;
       }
 
+      // Get GitHub token from localStorage if available
+      const githubToken = localStorage.getItem('github_token');
+      const authHeaders = githubToken 
+        ? { Authorization: `Bearer ${githubToken}` }
+        : { Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.secret}`)}` };
+
       // Fetch user repo stats first
       await fetchUserRepoStats(repoInfo.owner, credentials);
 
       const response = await fetch(`https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}`, {
         headers: {
-          Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.secret}`)}`,
+          ...authHeaders,
         },
       });
 
@@ -165,7 +171,10 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
 
       try {
         console.log('Starting secret scan for:', repoUrl);
-        const requestBody = { repoUrl: repoUrl };
+        const requestBody = { 
+          repoUrl: repoUrl,
+          githubToken: githubToken // Pass the GitHub token to the edge function
+        };
         console.log('Request body:', requestBody);
         
         const { data: scanResults, error: scanError } = await supabase.functions.invoke('scan-secrets', {

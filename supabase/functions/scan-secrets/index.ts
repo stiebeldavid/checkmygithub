@@ -1,3 +1,4 @@
+
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 
 const corsHeaders = {
@@ -57,24 +58,6 @@ serve(async (req) => {
       )
     }
 
-    // Get GitHub credentials from environment variables
-    const githubClientId = Deno.env.get('GITHUB_CLIENT_ID');
-    const githubSecret = Deno.env.get('GITHUB_CLIENT_SECRET');
-
-    if (!githubClientId || !githubSecret) {
-      console.error('Missing GitHub credentials:', { 
-        hasClientId: !!githubClientId, 
-        hasSecret: !!githubSecret 
-      });
-      return new Response(
-        JSON.stringify({ error: 'GitHub credentials not configured' }),
-        { 
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        }
-      );
-    }
-
     // Parse and validate request body
     let requestData;
     try {
@@ -93,8 +76,8 @@ serve(async (req) => {
       requestData = JSON.parse(rawBody);
       console.log('Parsed request data:', requestData);
 
-      if (!requestData.repoUrl) {
-        throw new Error('Missing repoUrl in request body');
+      if (!requestData.repoUrl || !requestData.githubToken) {
+        throw new Error('Missing repoUrl or githubToken in request body');
       }
     } catch (error) {
       console.error('Error parsing request body:', error);
@@ -110,7 +93,7 @@ serve(async (req) => {
       );
     }
 
-    const { repoUrl } = requestData;
+    const { repoUrl, githubToken } = requestData;
     console.log('Processing request for repo:', repoUrl);
 
     // Extract owner and repo from URL
@@ -129,14 +112,11 @@ serve(async (req) => {
     const repoName = repo.replace(/\.git\/?$/, '');
     console.log(`Scanning repository: ${owner}/${repoName}`);
 
-    // Create Basic Auth token for GitHub API
-    const authToken = btoa(`${githubClientId}:${githubSecret}`);
-
-    // Fetch repository contents using GitHub API
+    // Fetch repository contents using GitHub API with OAuth token
     const response = await fetch(`https://api.github.com/repos/${owner}/${repoName}/git/trees/main?recursive=1`, {
       headers: {
         'Accept': 'application/vnd.github.v3+json',
-        'Authorization': `Basic ${authToken}`,
+        'Authorization': `Bearer ${githubToken}`,
         'User-Agent': 'Supabase-Edge-Function',
       },
     });
@@ -166,11 +146,11 @@ serve(async (req) => {
         console.log('Scanning file:', file.path);
         
         try {
-          // Fetch file content
+          // Fetch file content using OAuth token
           const contentResponse = await fetch(`https://api.github.com/repos/${owner}/${repoName}/contents/${file.path}`, {
             headers: {
               'Accept': 'application/vnd.github.v3+json',
-              'Authorization': `Basic ${authToken}`,
+              'Authorization': `Bearer ${githubToken}`,
               'User-Agent': 'Supabase-Edge-Function',
             },
           });
