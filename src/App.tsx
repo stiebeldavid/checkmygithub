@@ -51,14 +51,7 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/auth" element={<Auth />} />
-          <Route
-            path="/"
-            element={
-              <PrivateRoute>
-                <Index />
-              </PrivateRoute>
-            }
-          />
+          <Route path="/" element={<Index />} />
           <Route
             path="/:username/:repo_name"
             element={

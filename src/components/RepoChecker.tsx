@@ -41,6 +41,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
   const [secretScanResults, setSecretScanResults] = useState<any>(null);
   const [selectedOption, setSelectedOption] = useState<string>();
   const [userRepoStats, setUserRepoStats] = useState<UserRepoStats | null>(null);
+  const [session, setSession] = useState<any>(null);
 
   const extractRepoInfo = (url: string) => {
     try {
@@ -109,6 +110,20 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     }
   };
 
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   const handleSubmit = async (repoUrl: string) => {
     setLoading(true);
     setRepoData(null);
@@ -118,8 +133,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     setUserRepoStats(null);
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
       // Get stored GitHub token if user is authenticated
       let githubToken = null;
       if (session) {
@@ -152,8 +165,10 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         ? { Authorization: `Bearer ${githubToken}` }
         : { Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.secret}`)}` };
 
-      // Fetch user repo stats first
-      await fetchUserRepoStats(repoInfo.owner, credentials);
+      // If user is logged in, fetch their repo stats
+      if (session) {
+        await fetchUserRepoStats(repoInfo.owner, credentials);
+      }
 
       const response = await fetch(`https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}`, {
         headers: {
@@ -184,12 +199,10 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
       });
 
       try {
-        console.log('Starting secret scan for:', repoUrl);
         const requestBody = { 
           repoUrl: repoUrl,
           githubToken: githubToken 
         };
-        console.log('Request body:', requestBody);
         
         const { data: scanResults, error: scanError } = await supabase.functions.invoke('scan-secrets', {
           body: requestBody,
@@ -261,6 +274,12 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
 
   const handleGitHubAuth = async () => {
     try {
+      if (!session) {
+        toast.error("Please sign in to grant repository access");
+        window.location.href = '/auth';
+        return;
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
@@ -390,17 +409,33 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 text-white">
       <div className="max-w-7xl mx-auto px-4 py-12">
-        <div className="flex justify-end mb-4">
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-gray-300 hover:text-white"
-            onClick={handleLogout}
-          >
-            <LogOut className="w-4 h-4 mr-2" />
-            Sign Out
-          </Button>
-        </div>
+        {session && (
+          <div className="flex justify-end mb-4">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-gray-300 hover:text-white"
+              onClick={handleLogout}
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Sign Out
+            </Button>
+          </div>
+        )}
+        
+        {!session && (
+          <div className="flex justify-end mb-4">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-gray-300 hover:text-white"
+              onClick={() => window.location.href = '/auth'}
+            >
+              Sign In
+            </Button>
+          </div>
+        )}
+
         <div className="text-center mb-12">
           <div className="max-w-3xl mx-auto space-y-6">
             {!loading && !repoData && !notFoundOrPrivate && (
@@ -541,51 +576,53 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
                   This repository either doesn't exist or is private. 
                 </p>
                 <div className="space-y-4">
-                  <p className="text-gray-400 font-medium">For a full security report, either:</p>
+                  <p className="text-gray-400 font-medium">To access private repositories:</p>
                   <ul className="list-none space-y-4">
                     <li className="flex items-start gap-4">
-                      <div className="rounded-full w-2 h-2 bg-gray-400 mt-2"></div>
-                      <div className="flex-1">
-                        <span className="text-gray-300">Grant read-only access to </span>
-                        <a 
-                          href="https://github.com/check-my-git-hub" 
-                          target="_blank" 
-                          rel="noopener noreferrer" 
-                          className="text-primary hover:underline"
-                        >
-                          Check-My-Git-Hub
-                        </a>
-                        <Button
-                          variant="default"
-                          size="sm"
-                          className="ml-4 bg-primary hover:bg-primary/90 text-white font-medium transition-colors"
-                          onClick={handleGitHubAuth}
-                          disabled={authenticating}
-                        >
-                          {authenticating ? (
-                            <LoadingSpinner className="w-4 h-4" />
-                          ) : (
-                            <>
-                              <Github className="w-4 h-4 mr-2" />
-                              Grant Access
-                            </>
-                          )}
-                        </Button>
-                        <div className="mt-2">
-                          <a 
-                            href={getAccessSettingsUrl(currentRepoUrl)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary hover:underline text-sm"
+                      {!session ? (
+                        <div className="flex-1">
+                          <span className="text-gray-300">First, </span>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="ml-2 bg-primary hover:bg-primary/90 text-white font-medium transition-colors"
+                            onClick={() => window.location.href = '/auth'}
                           >
-                            Click here to see your repo's access page
-                          </a>
+                            Sign In
+                          </Button>
                         </div>
-                      </div>
-                    </li>
-                    <li className="flex items-start gap-4">
-                      <div className="rounded-full w-2 h-2 bg-gray-400 mt-2"></div>
-                      <span className="text-gray-300">Make the repository public (not recommended)</span>
+                      ) : (
+                        <>
+                          <div className="rounded-full w-2 h-2 bg-gray-400 mt-2"></div>
+                          <div className="flex-1">
+                            <span className="text-gray-300">Grant read-only access to </span>
+                            <a 
+                              href="https://github.com/check-my-git-hub" 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="text-primary hover:underline"
+                            >
+                              Check-My-Git-Hub
+                            </a>
+                            <Button
+                              variant="default"
+                              size="sm"
+                              className="ml-4 bg-primary hover:bg-primary/90 text-white font-medium transition-colors"
+                              onClick={handleGitHubAuth}
+                              disabled={authenticating}
+                            >
+                              {authenticating ? (
+                                <LoadingSpinner className="w-4 h-4" />
+                              ) : (
+                                <>
+                                  <Github className="w-4 h-4 mr-2" />
+                                  Grant Access
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </>
+                      )}
                     </li>
                   </ul>
                 </div>

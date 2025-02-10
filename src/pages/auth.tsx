@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -46,6 +45,15 @@ export default function Auth() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 flex items-center justify-center p-4">
       <div className="max-w-md w-full space-y-8 bg-gray-800/50 p-8 rounded-lg border border-gray-700">
+        <div className="flex justify-between items-center">
+          <Button
+            variant="ghost"
+            onClick={() => navigate('/')}
+            className="text-gray-400 hover:text-white"
+          >
+            ← Back to Home
+          </Button>
+        </div>
         <div>
           <h2 className="text-center text-3xl font-bold text-white">
             {isSignUp ? "Create an account" : "Sign in to your account"}
