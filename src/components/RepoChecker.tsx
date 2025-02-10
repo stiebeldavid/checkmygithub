@@ -1,3 +1,4 @@
+
 import { useState, useRef, useEffect } from "react";
 import { Lock, AlertTriangle, Github, Globe, ChevronDown, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,20 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
   const [selectedOption, setSelectedOption] = useState<string>();
   const [userRepoStats, setUserRepoStats] = useState<UserRepoStats | null>(null);
   const [session, setSession] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const extractRepoInfo = (url: string) => {
     try {
@@ -109,20 +124,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
       console.error("Error fetching user repository stats:", error);
     }
   };
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
 
   const handleSubmit = async (repoUrl: string) => {
     setLoading(true);
@@ -280,9 +281,9 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         return;
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
       
-      if (!session) {
+      if (!currentSession) {
         toast.error("Please sign in to grant repository access");
         return;
       }
@@ -336,7 +337,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
             const { error: tokenError } = await supabase
               .from('github_oauth_tokens')
               .upsert({
-                user_id: session.user.id,
+                user_id: currentSession.user.id,
                 access_token: data.access_token,
               }, {
                 onConflict: 'user_id'
@@ -366,18 +367,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
       console.error('Error initiating GitHub auth:', error);
       toast.error('Failed to initiate GitHub authentication');
     }
-  };
-
-  const getAccessSettingsUrl = (repoUrl: string) => {
-    const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
-    if (!match) return '';
-    const [, owner, repo] = match;
-    return `https://github.com/${owner}/${repo.replace(/\.git\/?$/, '')}/settings/access`;
-  };
-
-  const handleShowSignUp = (option: string) => {
-    setSelectedOption(option);
-    scrollToPricing();
   };
 
   const handleLogout = async () => {
@@ -671,3 +660,4 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
 };
 
 export default RepoChecker;
+
