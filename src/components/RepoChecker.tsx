@@ -1,6 +1,8 @@
-import { useState, useRef, useEffect } from "react";
-import { Lock, AlertTriangle, Github, Globe, ChevronDown, LogOut } from "lucide-react";
+
+import { useState, useEffect } from "react";
+import { Lock, AlertTriangle, Github, Globe, ChevronDown, LogOut, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import LoadingSpinner from "./LoadingSpinner";
 import RepoStats from "./RepoStats";
 import RepoForm from "./RepoForm";
@@ -8,8 +10,10 @@ import SecurityBestPractices from "./SecurityBestPractices";
 import HowItWorks from "./HowItWorks";
 import Pricing from "./Pricing";
 import ScanningAnimation from "./ScanningAnimation";
+import ScanResults from "./ScanResults";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useNavigate } from "react-router-dom";
 import {
   Collapsible,
   CollapsibleContent,
@@ -42,20 +46,43 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
   const [selectedOption, setSelectedOption] = useState<string>();
   const [userRepoStats, setUserRepoStats] = useState<UserRepoStats | null>(null);
   const [session, setSession] = useState<any>(null);
+  const [scanCount, setScanCount] = useState<number>(0);
+  const navigate = useNavigate();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      if (session) {
+        fetchUserScanCount(session.user.id);
+      }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      if (session) {
+        fetchUserScanCount(session.user.id);
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
+  
+  const fetchUserScanCount = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('scan_history')
+        .select('id')
+        .eq('user_id', userId);
+        
+      if (error) throw error;
+      
+      setScanCount(data?.length || 0);
+    } catch (error) {
+      console.error("Error fetching scan count:", error);
+    }
+  };
 
   const extractRepoInfo = (url: string) => {
     try {
@@ -132,6 +159,14 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     setSecretScanResults(null);
     setUserRepoStats(null);
 
+    // Check if user is at scan limit (free tier)
+    if (session && scanCount >= 1 && !await checkUserHasPro(session.user.id)) {
+      toast.error("You've reached your free scan limit. Please upgrade to Pro for unlimited scans.");
+      setLoading(false);
+      scrollToPricing();
+      return;
+    }
+
     try {
       // Get stored GitHub token if user is authenticated
       let githubToken = null;
@@ -139,6 +174,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         const { data: tokenData } = await supabase
           .from('github_oauth_tokens')
           .select('access_token')
+          .eq('user_id', session.user.id)
           .single();
         
         if (tokenData) {
@@ -149,6 +185,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
       const repoInfo = extractRepoInfo(repoUrl);
       if (!repoInfo) {
         toast.error("Could not parse repository URL. Please check the format.");
+        setLoading(false);
         return;
       }
 
@@ -157,6 +194,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
       if (credentialsError || !credentials) {
         console.error("Error fetching GitHub credentials:", credentialsError);
         toast.error("Failed to authenticate with GitHub");
+        setLoading(false);
         return;
       }
 
@@ -179,6 +217,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
       if (!response.ok) {
         if (response.status === 404) {
           setNotFoundOrPrivate(true);
+          setLoading(false);
           return;
         }
         throw new Error(`GitHub API error: ${response.statusText}`);
@@ -211,22 +250,51 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         if (scanError) {
           console.error('Error scanning for secrets:', scanError);
           toast.error('Failed to scan repository for secrets. Please try again.');
+          setLoading(false);
           return;
         }
 
         if (!scanResults) {
           console.error('No scan results returned');
           toast.error('Failed to get scan results. Please try again.');
+          setLoading(false);
           return;
         }
 
         setSecretScanResults(scanResults);
+        
+        // Record the scan in history if user is logged in
+        if (session) {
+          await supabase.from('scan_history').insert({
+            user_id: session.user.id,
+            repository_url: repoUrl
+          });
+          
+          // Update local scan count
+          fetchUserScanCount(session.user.id);
+        }
         
         if (scanResults.results && scanResults.results.length > 0) {
           toast.warning(`Found ${scanResults.results.length} potential secrets in the repository`);
         } else {
           toast.success('No secrets found in the repository');
         }
+        
+        // If scan completed successfully, redirect to success page
+        navigate('/scan-success', { 
+          state: { 
+            repoUrl,
+            repoData: {
+              name: data.name,
+              visibility: data.private ? "private" : "public",
+              stars: data.stargazers_count,
+              forks: data.forks_count,
+              description: data.description,
+              language: data.language,
+            },
+            scanResults: scanResults
+          } 
+        });
       } catch (error) {
         console.error('Error during secret scan:', error);
         toast.error('Failed to complete secret scan. Please try again.');
@@ -236,6 +304,23 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
       toast.error("Failed to fetch repository data. Please try again later.");
     } finally {
       setLoading(false);
+    }
+  };
+  
+  const checkUserHasPro = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('scan_credits')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+        
+      if (error) return false;
+      
+      return data?.credits_remaining > 0 || data?.package_type === 'pro';
+    } catch (error) {
+      console.error("Error checking pro status:", error);
+      return false;
     }
   };
 
@@ -445,12 +530,19 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
             )}
             <h1 className="text-5xl font-bold mb-6">
               Scan Your Repository
-              <span className="text-primary"> for Free</span>
+              <span className="text-primary"> for Security Issues</span>
             </h1>
             {!loading && !repoData && !notFoundOrPrivate && (
               <p className="text-xl text-gray-300">
                 Built specifically for developers using AI tools like Lovable, Bolt, Create, v0, Replit, Cursor and more.
               </p>
+            )}
+            
+            {session && scanCount > 0 && (
+              <div className="mt-4 text-amber-400 flex items-center justify-center gap-2">
+                <Shield className="w-5 h-5" />
+                <span>You've used {scanCount} of your free scans</span>
+              </div>
             )}
           </div>
 
@@ -560,6 +652,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
           {loading && (
             <div className="text-center py-12 animate-fade-in">
               <ScanningAnimation />
+              <p className="text-gray-300 mt-8">Running security scan on your repository...</p>
             </div>
           )}
 
@@ -637,34 +730,8 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
           )}
         </div>
 
-        {repoData && (
-          <div className="w-full">
-            {secretScanResults && secretScanResults.results && secretScanResults.results.length > 0 && (
-              <div className="max-w-4xl mx-auto bg-red-500/10 border border-red-500/20 rounded-lg p-4 mt-4">
-                <div className="flex items-center gap-2 text-red-400 mb-2">
-                  <AlertTriangle className="w-5 h-5" />
-                  <h3 className="font-semibold">Security Alert: Potential Secrets Found</h3>
-                </div>
-                <p className="text-gray-300 mb-4">
-                  We found {secretScanResults.results.length} potential secrets in your repository. 
-                  Please review and remove any hardcoded API keys, tokens, or other sensitive information.
-                </p>
-                <div className="space-y-2">
-                  {secretScanResults.results.map((result: any, index: number) => (
-                    <div key={index} className="bg-gray-800/50 p-3 rounded">
-                      <p className="text-sm text-gray-400">Found in: {result.file}</p>
-                      <p className="text-sm text-gray-400">Type: {result.ruleID}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
         <Pricing onPlanSelect={handleShowSignUp} />
         <SecurityBestPractices />
-        <HowItWorks />
       </div>
     </div>
   );

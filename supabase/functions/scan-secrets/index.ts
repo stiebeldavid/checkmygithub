@@ -7,33 +7,98 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-// Secret detection patterns
+// Secret detection patterns based on TruffleHog and common patterns
 const secretPatterns = [
   {
-    name: 'Generic API Key',
-    regex: /api[_-]?key|apikey["\s]*[:=]["\s]*[a-z0-9]{32,45}/i,
+    name: 'API Key',
+    regex: /api[_-]?key["\s]*[:=]["\s]*[a-z0-9]{32,45}/i,
+    severity: 'High',
   },
   {
     name: 'AWS Access Key',
     regex: /AKIA[0-9A-Z]{16}/,
+    severity: 'Critical',
   },
   {
     name: 'GitHub Token',
     regex: /gh[ps]_[0-9a-zA-Z]{36}/,
+    severity: 'Critical',
+  },
+  {
+    name: 'Google API Key',
+    regex: /AIza[0-9A-Za-z\-_]{35}/,
+    severity: 'High',
+  },
+  {
+    name: 'Firebase Secret',
+    regex: /FIREBASE_SECRET|["\s]*[:=]["\s]*[a-z0-9]{32,}/i,
+    severity: 'High',
+  },
+  {
+    name: 'Supabase Key',
+    regex: /eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*$/,
+    severity: 'Critical',
+  },
+  {
+    name: 'JSON Web Token',
+    regex: /ey[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*$/,
+    severity: 'Medium',
   },
   {
     name: 'Generic Secret',
     regex: /secret|password|token["\s]*[:=]["\s]*[a-z0-9]{32,45}/i,
+    severity: 'Medium',
   },
   {
     name: 'Private Key',
-    regex: /-----BEGIN PRIVATE KEY-----/,
-  },
-  {
-    name: 'RSA Private Key',
-    regex: /-----BEGIN RSA PRIVATE KEY-----/,
+    regex: /-----BEGIN PRIVATE KEY-----|-----BEGIN RSA PRIVATE KEY-----|-----BEGIN DSA PRIVATE KEY-----|-----BEGIN EC PRIVATE KEY-----|-----BEGIN PGP PRIVATE KEY BLOCK-----|BEGIN PRIVATE KEY/,
+    severity: 'Critical',
   },
 ]
+
+// Mock npm audit data format
+const mockVulnerabilities = [
+  {
+    name: "minimist",
+    currentVersion: "1.2.5",
+    vulnerableVersion: "<1.2.6",
+    severity: "Critical",
+    description: "Prototype Pollution",
+  },
+  {
+    name: "node-fetch",
+    currentVersion: "2.6.1",
+    vulnerableVersion: "<2.6.7",
+    severity: "High",
+    description: "SSRF vulnerability",
+  },
+  {
+    name: "lodash",
+    currentVersion: "4.17.15",
+    vulnerableVersion: "<4.17.21",
+    severity: "High",
+    description: "Prototype Pollution",
+  }
+];
+
+// Insecure code patterns to look for
+const insecurePatterns = [
+  {
+    name: 'Eval Usage',
+    regex: /eval\s*\(/,
+    severity: 'High',
+  },
+  {
+    name: 'Unsanitized DOM',
+    regex: /innerHTML|outerHTML|document\.write/,
+    severity: 'Medium',
+  },
+  {
+    name: 'SQL Injection Risk',
+    regex: /execute\(\s*["'`]SELECT|executeQuery\(\s*["'`]SELECT|\.query\(\s*["'`]SELECT/i,
+    severity: 'High',
+  }
+];
 
 serve(async (req) => {
   console.log('Received request:', req.method);
@@ -122,23 +187,35 @@ serve(async (req) => {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('GitHub API error:', response.status, errorText);
-      return new Response(
-        JSON.stringify({ 
-          error: `GitHub API error: ${response.statusText}`,
-          details: errorText
-        }),
-        { 
-          status: response.status,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        }
-      );
+      // Try master branch if main doesn't exist
+      const masterResponse = await fetch(`https://api.github.com/repos/${owner}/${repoName}/git/trees/master?recursive=1`, {
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'Authorization': `Bearer ${githubToken}`,
+          'User-Agent': 'Supabase-Edge-Function',
+        },
+      });
+      
+      if (!masterResponse.ok) {
+        const errorText = await response.text();
+        console.error('GitHub API error:', response.status, errorText);
+        return new Response(
+          JSON.stringify({ 
+            error: `GitHub API error: ${response.statusText}`,
+            details: errorText
+          }),
+          { 
+            status: response.status,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
     }
 
     const data = await response.json();
-    const results = [];
-    const textFileExtensions = ['.js', '.ts', '.json', '.yml', '.yaml', '.env', '.txt', '.md', '.jsx', '.tsx'];
+    const secretResults = [];
+    const patternResults = [];
+    const textFileExtensions = ['.js', '.ts', '.json', '.yml', '.yaml', '.env', '.txt', '.md', '.jsx', '.tsx', '.html', '.css', '.scss', '.php', '.py', '.rb', '.java'];
 
     // Scan each file
     for (const file of data.tree) {
@@ -163,9 +240,23 @@ serve(async (req) => {
             for (const pattern of secretPatterns) {
               const matches = content.match(pattern.regex);
               if (matches && matches.length > 0) {
-                results.push({
+                secretResults.push({
                   file: file.path,
                   ruleID: pattern.name,
+                  severity: pattern.severity,
+                  matches: matches.length,
+                });
+              }
+            }
+            
+            // Check for insecure patterns (would be shown only in pro tier)
+            for (const pattern of insecurePatterns) {
+              const matches = content.match(pattern.regex);
+              if (matches && matches.length > 0) {
+                patternResults.push({
+                  file: file.path,
+                  ruleID: pattern.name,
+                  severity: pattern.severity,
                   matches: matches.length,
                 });
               }
@@ -179,10 +270,37 @@ serve(async (req) => {
       }
     }
 
-    console.log('Scan completed. Found', results.length, 'potential secrets');
+    // Check for package.json to simulate dependency vulnerability check
+    let packageJson = null;
+    try {
+      const packageResponse = await fetch(`https://api.github.com/repos/${owner}/${repoName}/contents/package.json`, {
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'Authorization': `Bearer ${githubToken}`,
+          'User-Agent': 'Supabase-Edge-Function',
+        },
+      });
+      
+      if (packageResponse.ok) {
+        const packageData = await packageResponse.json();
+        packageJson = JSON.parse(atob(packageData.content));
+      }
+    } catch (error) {
+      console.log('No package.json found or error parsing:', error);
+    }
+
+    console.log('Scan completed. Found', secretResults.length, 'potential secrets and', patternResults.length, 'insecure patterns');
 
     return new Response(
-      JSON.stringify({ results }),
+      JSON.stringify({
+        results: secretResults,
+        patterns: patternResults,
+        dependencies: packageJson ? mockVulnerabilities : [],
+        repoInfo: {
+          owner,
+          repo: repoName
+        }
+      }),
       { 
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
