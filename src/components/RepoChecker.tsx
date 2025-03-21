@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Lock, AlertTriangle, Github, Globe, ChevronDown, LogOut, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -47,6 +46,9 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
   const [userRepoStats, setUserRepoStats] = useState<UserRepoStats | null>(null);
   const [session, setSession] = useState<any>(null);
   const [scanCount, setScanCount] = useState<number>(0);
+  const [useGitHubAction, setUseGitHubAction] = useState(false);
+  const [currentScanId, setCurrentScanId] = useState<string | null>(null);
+  const [scanStatusInterval, setScanStatusInterval] = useState<number | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -110,7 +112,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
 
       const userData = await response.json();
 
-      // Fetch public repositories list
       const reposResponse = await fetch(`https://api.github.com/users/${username}/repos`, {
         headers: {
           Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.secret}`)}`,
@@ -127,9 +128,9 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
           name: repo.name,
           url: repo.html_url,
           description: repo.description,
-          size: repo.size, // Size in KB
+          size: repo.size,
         }))
-        .sort((a: any, b: any) => (b.size || 0) - (a.size || 0)); // Sort by size descending
+        .sort((a: any, b: any) => (b.size || 0) - (a.size || 0));
 
       setUserRepoStats({
         totalRepos: userData.public_repos,
@@ -151,6 +152,25 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     }
   };
 
+  const checkScanStatus = async (scanId: string) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('check-scan-status', {
+        method: 'GET',
+        query: { scanId }
+      });
+      
+      if (error) {
+        console.error("Error checking scan status:", error);
+        return null;
+      }
+      
+      return data;
+    } catch (error) {
+      console.error("Error polling scan status:", error);
+      return null;
+    }
+  };
+
   const handleSubmit = async (repoUrl: string) => {
     setLoading(true);
     setRepoData(null);
@@ -158,12 +178,16 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     setCurrentRepoUrl(repoUrl);
     setSecretScanResults(null);
     setUserRepoStats(null);
+    setCurrentScanId(null);
+    
+    if (scanStatusInterval) {
+      clearInterval(scanStatusInterval);
+      setScanStatusInterval(null);
+    }
 
-    // User authentication check only needed for private repos or scan limits
     const { data: { session: currentSession } } = await supabase.auth.getSession();
 
     try {
-      // Get GitHub credentials for API access
       const { data: credentials, error: credentialsError } = await supabase.functions.invoke('get-github-secret');
       
       if (credentialsError || !credentials) {
@@ -173,7 +197,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         return;
       }
 
-      // Get stored GitHub token if user is authenticated
       let githubToken = null;
       if (currentSession) {
         const { data: tokenData } = await supabase
@@ -194,17 +217,14 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         return;
       }
 
-      // Use GitHub token if available, otherwise fall back to basic auth
       const authHeaders = githubToken 
         ? { Authorization: `Bearer ${githubToken}` }
         : { Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.secret}`)}` };
 
-      // If user is logged in, fetch their repo stats
       if (currentSession) {
         await fetchUserRepoStats(repoInfo.owner, credentials);
       }
 
-      // Fetch repository info to check if it's public or private
       console.log("Fetching repository info...");
       const response = await fetch(`https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}`, {
         headers: {
@@ -237,7 +257,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         size: data.size,
       });
 
-      // If private repo and user is not authenticated, prompt for auth
       if (data.private && !currentSession) {
         setNotFoundOrPrivate(true);
         toast.warning("This is a private repository. Please sign in to scan it.");
@@ -245,7 +264,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         return;
       }
 
-      // Check if user is at scan limit (free tier)
       if (currentSession && scanCount >= 1 && !await checkUserHasPro(currentSession.user.id)) {
         toast.error("You've reached your free scan limit. Please upgrade to Pro for unlimited scans.");
         setLoading(false);
@@ -253,80 +271,144 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         return;
       }
 
-      // Run the actual scan
-      console.log("Starting scan for repo:", repoUrl);
+      console.log(`Starting ${useGitHubAction ? 'GitHub Action' : 'standard'} scan for repo:`, repoUrl);
+      
       try {
         const requestBody = { 
           repoUrl: repoUrl,
           githubToken: githubToken 
         };
         
-        console.log("Invoking scan-secrets function...");
-        const { data: scanResults, error: scanError } = await supabase.functions.invoke('scan-secrets', {
-          body: requestBody,
-        });
-
-        if (scanError) {
-          console.error('Error scanning for secrets:', scanError);
-          toast.error('Failed to scan repository for secrets. Please try again.');
-          setLoading(false);
-          return;
-        }
-
-        if (!scanResults) {
-          console.error('No scan results returned');
-          toast.error('Failed to get scan results. Please try again.');
-          setLoading(false);
-          return;
-        }
-
-        console.log("Scan results:", scanResults);
-        setSecretScanResults(scanResults);
-        
-        // Record the scan in history if user is logged in
-        if (currentSession) {
-          await supabase.from('scan_history').insert({
-            user_id: currentSession.user.id,
-            repository_url: repoUrl
+        if (useGitHubAction) {
+          const { data: actionData, error: actionError } = await supabase.functions.invoke('trigger-trufflehog-action', {
+            body: requestBody,
           });
           
-          // Update local scan count
-          fetchUserScanCount(currentSession.user.id);
-        }
-        
-        if (scanResults.results && scanResults.results.length > 0) {
-          toast.warning(`Found ${scanResults.results.length} potential secrets in the repository`);
+          if (actionError) {
+            console.error('Error triggering GitHub Action:', actionError);
+            toast.error('Failed to trigger security scan. Falling back to standard scan...');
+            
+            await runStandardScan(requestBody, currentSession, data);
+          } else {
+            console.log("GitHub Action triggered:", actionData);
+            
+            setCurrentScanId(actionData.scanId);
+            
+            const intervalId = setInterval(async () => {
+              const status = await checkScanStatus(actionData.scanId);
+              console.log("Scan status:", status);
+              
+              if (status?.status === 'completed') {
+                clearInterval(intervalId);
+                setScanStatusInterval(null);
+                
+                setSecretScanResults(status.results);
+                
+                navigate('/scan-success', { 
+                  state: { 
+                    repoUrl,
+                    repoData: {
+                      name: data.name,
+                      visibility: data.private ? "private" : "public",
+                      stars: data.stargazers_count,
+                      forks: data.forks_count,
+                      description: data.description,
+                      language: data.language,
+                    },
+                    scanResults: status.results,
+                    gitHubAction: true
+                  } 
+                });
+                
+                setLoading(false);
+              }
+            }, 5000);
+            
+            setScanStatusInterval(intervalId);
+            
+            if (currentSession) {
+              await supabase.from('scan_history').insert({
+                user_id: currentSession.user.id,
+                repository_url: repoUrl
+              });
+              
+              fetchUserScanCount(currentSession.user.id);
+            }
+            
+            toast.info('GitHub Action scan initiated. This may take a few minutes...');
+          }
         } else {
-          toast.success('No secrets found in the repository');
+          await runStandardScan(requestBody, currentSession, data);
         }
-        
-        // If scan completed successfully, redirect to success page
-        navigate('/scan-success', { 
-          state: { 
-            repoUrl,
-            repoData: {
-              name: data.name,
-              visibility: data.private ? "private" : "public",
-              stars: data.stargazers_count,
-              forks: data.forks_count,
-              description: data.description,
-              language: data.language,
-            },
-            scanResults: scanResults
-          } 
-        });
       } catch (error) {
-        console.error('Error during secret scan:', error);
-        toast.error('Failed to complete secret scan. Please try again.');
+        console.error('Error during scan:', error);
+        toast.error('Failed to complete the security scan. Please try again.');
+        setLoading(false);
       }
     } catch (error) {
       console.error("Error scanning repository:", error);
       toast.error("Failed to fetch repository data. Please try again later.");
-    } finally {
       setLoading(false);
     }
   };
-  
+
+  const runStandardScan = async (requestBody: any, currentSession: any, repoData: any) => {
+    console.log("Running standard scan");
+    const { data: scanResults, error: scanError } = await supabase.functions.invoke('scan-secrets', {
+      body: requestBody,
+    });
+
+    if (scanError) {
+      console.error('Error scanning for secrets:', scanError);
+      toast.error('Failed to scan repository for secrets. Please try again.');
+      setLoading(false);
+      return;
+    }
+
+    if (!scanResults) {
+      console.error('No scan results returned');
+      toast.error('Failed to get scan results. Please try again.');
+      setLoading(false);
+      return;
+    }
+
+    console.log("Scan results:", scanResults);
+    setSecretScanResults(scanResults);
+    
+    if (currentSession) {
+      await supabase.from('scan_history').insert({
+        user_id: currentSession.user.id,
+        repository_url: requestBody.repoUrl
+      });
+      
+      fetchUserScanCount(currentSession.user.id);
+    }
+    
+    if (scanResults.results && scanResults.results.length > 0) {
+      toast.warning(`Found ${scanResults.results.length} potential secrets in the repository`);
+    } else {
+      toast.success('No secrets found in the repository');
+    }
+    
+    navigate('/scan-success', { 
+      state: { 
+        repoUrl: requestBody.repoUrl,
+        repoData: {
+          name: repoData.name,
+          visibility: repoData.private ? "private" : "public",
+          stars: repoData.stargazers_count,
+          forks: repoData.forks_count,
+          description: repoData.description,
+          language: repoData.language,
+        },
+        scanResults: scanResults,
+        gitHubAction: false
+      } 
+    });
+    
+    setLoading(false);
+  };
+
   const checkUserHasPro = async (userId: string) => {
     try {
       const { data, error } = await supabase
@@ -353,7 +435,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
 
   const handleScanAllRepos = async () => {
     try {
-      // Record the signup attempt
       await supabase.from('Signups').insert({
         github_url: currentRepoUrl,
         option_chosen: 'Scan Now button'
@@ -366,7 +447,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
 
   const handleScanRepo = async (repoUrl: string) => {
     try {
-      // Record the signup attempt
       await supabase.from('Signups').insert({
         github_url: repoUrl,
         option_chosen: 'Scan Now button'
@@ -437,7 +517,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
 
             if (error) throw error;
 
-            // Store the token in Supabase
             const { error: tokenError } = await supabase
               .from('github_oauth_tokens')
               .upsert({
@@ -495,13 +574,20 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
   };
 
   useEffect(() => {
+    return () => {
+      if (scanStatusInterval) {
+        clearInterval(scanStatusInterval);
+      }
+    };
+  }, [scanStatusInterval]);
+
+  useEffect(() => {
     const handleAutoScan = (event: CustomEvent<{ repoUrl: string }>) => {
       handleSubmit(event.detail.repoUrl);
     };
 
     window.addEventListener('auto-scan', handleAutoScan as EventListener);
     
-    // If initialRepoUrl is provided, trigger scan automatically
     if (initialRepoUrl) {
       handleSubmit(initialRepoUrl);
     }
@@ -566,8 +652,30 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
             )}
           </div>
 
-          <div className="max-w-2xl mx-auto mt-12 mb-16">
+          <div className="max-w-2xl mx-auto mt-12 mb-8">
             <RepoForm onSubmit={handleSubmit} loading={loading} initialValue={initialRepoUrl} />
+          </div>
+
+          <div className="max-w-2xl mx-auto mb-16 flex items-center justify-center">
+            <div className="flex items-center space-x-2">
+              <div className="text-sm text-gray-400">Scanner:</div>
+              <Button
+                variant={!useGitHubAction ? "default" : "outline"}
+                size="sm"
+                onClick={() => setUseGitHubAction(false)}
+                className={!useGitHubAction ? "bg-primary" : "text-gray-300"}
+              >
+                Basic
+              </Button>
+              <Button
+                variant={useGitHubAction ? "default" : "outline"}
+                size="sm"
+                onClick={() => setUseGitHubAction(true)}
+                className={useGitHubAction ? "bg-primary" : "text-gray-300"}
+              >
+                GitHub Action (TruffleHog)
+              </Button>
+            </div>
           </div>
 
           {userRepoStats && (
@@ -672,7 +780,14 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
           {loading && (
             <div className="text-center py-12 animate-fade-in">
               <ScanningAnimation />
-              <p className="text-gray-300 mt-8">Running security scan on your repository...</p>
+              <p className="text-gray-300 mt-8">
+                Running {useGitHubAction ? "GitHub Action" : "standard"} security scan on your repository...
+              </p>
+              {useGitHubAction && currentScanId && (
+                <p className="text-gray-400 text-sm mt-2">
+                  Scan ID: {currentScanId}
+                </p>
+              )}
             </div>
           )}
 

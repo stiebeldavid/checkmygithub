@@ -15,7 +15,7 @@ const ScanSuccess = () => {
   const [session, setSession] = useState<any>(null);
   
   // Retrieve the scan data from location state
-  const { repoUrl, repoData, scanResults } = location.state || {};
+  const { repoUrl, repoData, scanResults, gitHubAction } = location.state || {};
   
   useEffect(() => {
     if (!repoUrl || !scanResults) {
@@ -90,33 +90,71 @@ const ScanSuccess = () => {
   };
   
   // Transform scan results for the ScanResults component
-  const formattedResults = {
-    secrets: scanResults?.results ? {
-      count: scanResults.results.length,
-      items: scanResults.results.map((result: any) => ({
-        file: result.file,
-        type: result.ruleID,
-        severity: result.severity,
-      }))
-    } : undefined,
-    dependencies: scanResults?.dependencies ? {
-      count: scanResults.dependencies.length,
-      items: scanResults.dependencies.map((dep: any) => ({
-        name: dep.name,
-        currentVersion: dep.currentVersion,
-        vulnerableVersion: dep.vulnerableVersion,
-        severity: dep.severity,
-      }))
-    } : {
-      count: 0,
-      items: []
-    },
-    patterns: scanResults?.patterns ? {
-      count: scanResults.patterns.length,
-    } : {
-      count: 0,
+  // Handle both standard scan and GitHub Action results
+  const formatResults = () => {
+    if (gitHubAction) {
+      // Format GitHub Action TruffleHog results
+      return {
+        secrets: scanResults?.items ? {
+          count: scanResults.items.length,
+          items: scanResults.items.map((result: any) => ({
+            file: result.file,
+            type: result.ruleID,
+            severity: result.severity,
+            line: result.line,
+            context: result.context
+          }))
+        } : {
+          count: 0,
+          items: []
+        },
+        // GitHub Actions don't currently return dependency data
+        dependencies: {
+          count: 0,
+          items: []
+        },
+        patterns: {
+          count: 0
+        },
+        scanner: "GitHub Action (TruffleHog)"
+      };
+    } else {
+      // Format standard scan results
+      return {
+        secrets: scanResults?.results ? {
+          count: scanResults.results.length,
+          items: scanResults.results.map((result: any) => ({
+            file: result.file,
+            type: result.ruleID,
+            severity: result.severity,
+          }))
+        } : {
+          count: 0,
+          items: []
+        },
+        dependencies: scanResults?.dependencies ? {
+          count: scanResults.dependencies.length,
+          items: scanResults.dependencies.map((dep: any) => ({
+            name: dep.name,
+            currentVersion: dep.currentVersion,
+            vulnerableVersion: dep.vulnerableVersion,
+            severity: dep.severity,
+          }))
+        } : {
+          count: 0,
+          items: []
+        },
+        patterns: scanResults?.patterns ? {
+          count: scanResults.patterns.length,
+        } : {
+          count: 0,
+        },
+        scanner: "Standard Scanner"
+      };
     }
   };
+  
+  const formattedResults = formatResults();
   
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 text-white py-12 px-4">
@@ -136,6 +174,12 @@ const ScanSuccess = () => {
             <span>Scan Complete</span>
           </div>
           <h1 className="text-4xl font-bold mb-6">Security Scan Results</h1>
+          
+          {gitHubAction && (
+            <div className="mt-2 mb-4 bg-blue-500/10 border border-blue-500/20 rounded-lg py-2 px-3 inline-flex items-center text-blue-400">
+              <span>Scanned with TruffleHog GitHub Action</span>
+            </div>
+          )}
           
           {!session && (
             <div className="mt-4 bg-blue-500/10 border border-blue-500/20 rounded-lg py-3 px-4 inline-flex items-center text-blue-400">

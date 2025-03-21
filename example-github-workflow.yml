@@ -1,0 +1,58 @@
+
+name: TruffleHog Security Scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo_url:
+        description: 'URL of the repository to scan'
+        required: true
+      target_owner:
+        description: 'Owner of the repository to scan'
+        required: true
+      target_repo:
+        description: 'Name of the repository to scan'
+        required: true
+      scan_id:
+        description: 'Unique ID for this scan'
+        required: true
+      use_github_token:
+        description: 'Whether to use provided GitHub token'
+        required: true
+        default: 'false'
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout security-scanner repo
+        uses: actions/checkout@v3
+
+      - name: Set up variables
+        id: vars
+        run: |
+          echo "SCAN_ID=${{ github.event.inputs.scan_id }}" >> $GITHUB_OUTPUT
+          echo "TARGET_REPO=${{ github.event.inputs.target_repo_url }}" >> $GITHUB_OUTPUT
+
+      - name: Run TruffleHog scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ${{ github.event.inputs.target_repo_url }}
+          base: ""
+          head: "HEAD"
+          extra_args: --json
+
+      - name: Process and store scan results
+        run: |
+          # In a real implementation, you would:
+          # 1. Parse the TruffleHog output
+          # 2. Store the results in a database or other persistent storage
+          # 3. Update the scan status in your application
+          echo "Scan ID: ${{ steps.vars.outputs.SCAN_ID }}"
+          echo "Target Repository: ${{ steps.vars.outputs.TARGET_REPO }}"
+          
+          # Example of how you might upload results to your API
+          # curl -X POST \
+          #   -H "Content-Type: application/json" \
+          #   -d '{"scanId": "${{ steps.vars.outputs.SCAN_ID }}", "results": {...}}' \
+          #   https://your-api-endpoint/store-scan-results
