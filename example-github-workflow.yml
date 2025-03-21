@@ -34,25 +34,61 @@ jobs:
           echo "SCAN_ID=${{ github.event.inputs.scan_id }}" >> $GITHUB_OUTPUT
           echo "TARGET_REPO=${{ github.event.inputs.target_repo_url }}" >> $GITHUB_OUTPUT
 
+      - name: Clone target repository
+        run: |
+          if [ "${{ github.event.inputs.use_github_token }}" == "true" ]; then
+            git clone https://${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.event.inputs.target_owner }}/${{ github.event.inputs.target_repo }}.git repo-to-scan
+          else
+            git clone https://github.com/${{ github.event.inputs.target_owner }}/${{ github.event.inputs.target_repo }}.git repo-to-scan
+          fi
+
       - name: Run TruffleHog scan
-        uses: trufflesecurity/trufflehog@main
+        uses: trufflesecurity/trufflehog@v3.88.18
         with:
-          path: ${{ github.event.inputs.target_repo_url }}
+          path: repo-to-scan
           base: ""
           head: "HEAD"
-          extra_args: --json
+          extra_args: --json > scan_results.json
 
-      - name: Process and store scan results
+      - name: Process scan results
+        id: process
         run: |
-          # In a real implementation, you would:
-          # 1. Parse the TruffleHog output
-          # 2. Store the results in a database or other persistent storage
-          # 3. Update the scan status in your application
-          echo "Scan ID: ${{ steps.vars.outputs.SCAN_ID }}"
-          echo "Target Repository: ${{ steps.vars.outputs.TARGET_REPO }}"
+          if [ -f scan_results.json ]; then
+            echo "Found scan results file"
+            SECRETS_COUNT=$(grep -c detector_name scan_results.json || echo "0")
+            echo "Found $SECRETS_COUNT potential secrets"
+            echo "SECRETS_COUNT=$SECRETS_COUNT" >> $GITHUB_OUTPUT
+            
+            # Create a JSON structure for the results
+            echo '{"scanId":"'${{ steps.vars.outputs.SCAN_ID }}'","secretsFound":'$SECRETS_COUNT',"items":[' > processed_results.json
+            
+            # Extract key details from each result
+            if [ "$SECRETS_COUNT" -gt "0" ]; then
+              cat scan_results.json | jq -c '.detector_name, .file, .line, .verified' | 
+              while read -r detector && read -r file && read -r line && read -r verified; do
+                echo '{"ruleID":'$detector',"file":'$file',"line":'$line',"severity":"High","context":"Redacted for security"},' >> processed_results.json
+              done
+              # Remove the trailing comma
+              sed -i '$ s/,$//' processed_results.json
+            fi
+            
+            echo ']}' >> processed_results.json
+            
+            # Save results for API response
+            mkdir -p /tmp/scan-results
+            cp processed_results.json "/tmp/scan-results/${{ steps.vars.outputs.SCAN_ID }}.json"
+          else
+            echo "No scan results file found"
+            echo '{"scanId":"'${{ steps.vars.outputs.SCAN_ID }}'","secretsFound":0,"items":[]}' > processed_results.json
+          fi
           
-          # Example of how you might upload results to your API
-          # curl -X POST \
-          #   -H "Content-Type: application/json" \
-          #   -d '{"scanId": "${{ steps.vars.outputs.SCAN_ID }}", "results": {...}}' \
-          #   https://your-api-endpoint/store-scan-results
+          # Output a summary
+          cat processed_results.json
+          
+      - name: Store scan results
+        run: |
+          # In a real implementation, you would send these results to your backend:
+          # curl -X POST -H "Content-Type: application/json" -d @processed_results.json https://your-api-endpoint/store-scan-results
+          
+          echo "Scan complete. Results ready for the scan ID: ${{ steps.vars.outputs.SCAN_ID }}"
+          echo "Found ${{ steps.process.outputs.SECRETS_COUNT }} potential secrets in the repository"

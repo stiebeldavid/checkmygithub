@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { Lock, AlertTriangle, Github, Globe, ChevronDown, LogOut, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -156,7 +157,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     try {
       const { data, error } = await supabase.functions.invoke('check-scan-status', {
         method: 'GET',
-        query: { scanId }
+        queryParams: { scanId }
       });
       
       if (error) {
@@ -294,7 +295,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
             
             setCurrentScanId(actionData.scanId);
             
-            const intervalId = setInterval(async () => {
+            const intervalId = window.setInterval(async () => {
               const status = await checkScanStatus(actionData.scanId);
               console.log("Scan status:", status);
               
