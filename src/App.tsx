@@ -60,14 +60,8 @@ const App = () => (
               </PrivateRoute>
             }
           />
-          <Route
-            path="/scan-success"
-            element={
-              <PrivateRoute>
-                <ScanSuccess />
-              </PrivateRoute>
-            }
-          />
+          {/* Allow public access to scan results */}
+          <Route path="/scan-success" element={<ScanSuccess />} />
         </Routes>
       </BrowserRouter>
     </TooltipProvider>

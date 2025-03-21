@@ -1,7 +1,7 @@
 
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, Shield, Download } from "lucide-react";
+import { ChevronLeft, Shield, Download, LockIcon } from "lucide-react";
 import RepoStats from "@/components/RepoStats";
 import ScanResults from "@/components/ScanResults";
 import { useState, useEffect } from "react";
@@ -68,7 +68,23 @@ const ScanSuccess = () => {
     }
   };
   
+  const handleSignUpClick = () => {
+    // Store the scan results in localStorage so we can retrieve them after auth
+    if (repoUrl && repoData && scanResults) {
+      localStorage.setItem('pendingScanData', JSON.stringify({
+        repoUrl,
+        repoData,
+        scanResults
+      }));
+    }
+    navigate('/auth');
+  };
+  
   const generatePDFReport = () => {
+    if (!session) {
+      toast.info("Please sign in to download PDF reports");
+      return;
+    }
     // This would be implemented to generate a PDF report
     toast.info("PDF report generation coming soon in the Pro tier");
   };
@@ -110,6 +126,21 @@ const ScanSuccess = () => {
             <span>Scan Complete</span>
           </div>
           <h1 className="text-4xl font-bold mb-6">Security Scan Results</h1>
+          
+          {!session && (
+            <div className="mt-4 bg-blue-500/10 border border-blue-500/20 rounded-lg py-3 px-4 inline-flex items-center text-blue-400">
+              <LockIcon className="h-5 w-5 mr-2" />
+              <span>Sign in to save this report and unlock premium features</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSignUpClick}
+                className="ml-4 border-blue-500/50 text-blue-400 hover:bg-blue-500/10"
+              >
+                Sign Up / Sign In
+              </Button>
+            </div>
+          )}
         </div>
         
         {repoData && (
@@ -121,7 +152,7 @@ const ScanSuccess = () => {
         <ScanResults 
           results={formattedResults} 
           isPro={isPro} 
-          onUpgradeClick={handleUpgradeClick} 
+          onUpgradeClick={session ? handleUpgradeClick : handleSignUpClick} 
         />
         
         {/* PDF Report Download - Pro feature */}
@@ -129,15 +160,16 @@ const ScanSuccess = () => {
           <Button
             variant="outline"
             className="inline-flex items-center gap-2 border-primary text-primary"
-            onClick={generatePDFReport}
-            disabled={!isPro}
+            onClick={session ? generatePDFReport : handleSignUpClick}
           >
             <Download className="h-4 w-4" />
             {isPro ? "Download PDF Report" : "PDF Reports Available in Pro"}
           </Button>
           {!isPro && (
             <p className="text-gray-400 mt-2 text-sm">
-              Upgrade to Pro to download comprehensive PDF reports
+              {session 
+                ? "Upgrade to Pro to download comprehensive PDF reports" 
+                : "Sign in and upgrade to Pro to download comprehensive PDF reports"}
             </p>
           )}
         </div>

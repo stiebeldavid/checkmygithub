@@ -1,4 +1,5 @@
-import { useState } from "react";
+
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,30 @@ export default function Auth() {
   const [password, setPassword] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
   const navigate = useNavigate();
+
+  // Check for pending scan data
+  useEffect(() => {
+    const checkPendingScan = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session) {
+        const pendingScanData = localStorage.getItem('pendingScanData');
+        if (pendingScanData) {
+          // Clear the pending scan data
+          localStorage.removeItem('pendingScanData');
+          
+          // Navigate back to the scan results
+          const scanData = JSON.parse(pendingScanData);
+          navigate('/scan-success', { state: scanData });
+        } else {
+          // No pending scan, go to home
+          navigate('/');
+        }
+      }
+    };
+    
+    checkPendingScan();
+  }, [navigate]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +56,20 @@ export default function Auth() {
           password,
         });
         if (error) throw error;
-        navigate("/");
+        
+        // Check for pending scan data
+        const pendingScanData = localStorage.getItem('pendingScanData');
+        if (pendingScanData) {
+          // Clear the pending scan data
+          localStorage.removeItem('pendingScanData');
+          
+          // Navigate back to the scan results
+          const scanData = JSON.parse(pendingScanData);
+          navigate('/scan-success', { state: scanData });
+        } else {
+          // No pending scan, go to home
+          navigate('/');
+        }
       }
     } catch (error) {
       if (error instanceof Error) {
@@ -110,4 +148,4 @@ export default function Auth() {
       </div>
     </div>
   );
-}
+};

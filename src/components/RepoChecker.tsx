@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Lock, AlertTriangle, Github, Globe, ChevronDown, LogOut, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -159,8 +158,11 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     setSecretScanResults(null);
     setUserRepoStats(null);
 
+    // Check if user is authenticated
+    const { data: { session: currentSession } } = await supabase.auth.getSession();
+
     // Check if user is at scan limit (free tier)
-    if (session && scanCount >= 1 && !await checkUserHasPro(session.user.id)) {
+    if (currentSession && scanCount >= 1 && !await checkUserHasPro(currentSession.user.id)) {
       toast.error("You've reached your free scan limit. Please upgrade to Pro for unlimited scans.");
       setLoading(false);
       scrollToPricing();
@@ -170,11 +172,11 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     try {
       // Get stored GitHub token if user is authenticated
       let githubToken = null;
-      if (session) {
+      if (currentSession) {
         const { data: tokenData } = await supabase
           .from('github_oauth_tokens')
           .select('access_token')
-          .eq('user_id', session.user.id)
+          .eq('user_id', currentSession.user.id)
           .single();
         
         if (tokenData) {
@@ -204,7 +206,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         : { Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.secret}`)}` };
 
       // If user is logged in, fetch their repo stats
-      if (session) {
+      if (currentSession) {
         await fetchUserRepoStats(repoInfo.owner, credentials);
       }
 
@@ -237,6 +239,14 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         size: data.size,
       });
 
+      // If private repo and user is not authenticated, prompt for auth
+      if (data.private && !currentSession) {
+        setNotFoundOrPrivate(true);
+        toast.warning("This is a private repository. Please sign in to scan it.");
+        setLoading(false);
+        return;
+      }
+
       try {
         const requestBody = { 
           repoUrl: repoUrl,
@@ -264,14 +274,14 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         setSecretScanResults(scanResults);
         
         // Record the scan in history if user is logged in
-        if (session) {
+        if (currentSession) {
           await supabase.from('scan_history').insert({
-            user_id: session.user.id,
+            user_id: currentSession.user.id,
             repository_url: repoUrl
           });
           
           // Update local scan count
-          fetchUserScanCount(session.user.id);
+          fetchUserScanCount(currentSession.user.id);
         }
         
         if (scanResults.results && scanResults.results.length > 0) {
