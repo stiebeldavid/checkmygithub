@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { Lock, AlertTriangle, Github, Globe, ChevronDown, LogOut, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -158,18 +159,20 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
     setSecretScanResults(null);
     setUserRepoStats(null);
 
-    // Check if user is authenticated
+    // User authentication check only needed for private repos or scan limits
     const { data: { session: currentSession } } = await supabase.auth.getSession();
 
-    // Check if user is at scan limit (free tier)
-    if (currentSession && scanCount >= 1 && !await checkUserHasPro(currentSession.user.id)) {
-      toast.error("You've reached your free scan limit. Please upgrade to Pro for unlimited scans.");
-      setLoading(false);
-      scrollToPricing();
-      return;
-    }
-
     try {
+      // Get GitHub credentials for API access
+      const { data: credentials, error: credentialsError } = await supabase.functions.invoke('get-github-secret');
+      
+      if (credentialsError || !credentials) {
+        console.error("Error fetching GitHub credentials:", credentialsError);
+        toast.error("Failed to authenticate with GitHub");
+        setLoading(false);
+        return;
+      }
+
       // Get stored GitHub token if user is authenticated
       let githubToken = null;
       if (currentSession) {
@@ -191,15 +194,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         return;
       }
 
-      const { data: credentials, error: credentialsError } = await supabase.functions.invoke('get-github-secret');
-      
-      if (credentialsError || !credentials) {
-        console.error("Error fetching GitHub credentials:", credentialsError);
-        toast.error("Failed to authenticate with GitHub");
-        setLoading(false);
-        return;
-      }
-
       // Use GitHub token if available, otherwise fall back to basic auth
       const authHeaders = githubToken 
         ? { Authorization: `Bearer ${githubToken}` }
@@ -210,6 +204,8 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         await fetchUserRepoStats(repoInfo.owner, credentials);
       }
 
+      // Fetch repository info to check if it's public or private
+      console.log("Fetching repository info...");
       const response = await fetch(`https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}`, {
         headers: {
           ...authHeaders,
@@ -226,6 +222,8 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
       }
 
       const data = await response.json();
+      console.log("Repository data:", data);
+      
       setRepoData({
         name: data.name,
         visibility: data.private ? "private" : "public",
@@ -247,12 +245,23 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         return;
       }
 
+      // Check if user is at scan limit (free tier)
+      if (currentSession && scanCount >= 1 && !await checkUserHasPro(currentSession.user.id)) {
+        toast.error("You've reached your free scan limit. Please upgrade to Pro for unlimited scans.");
+        setLoading(false);
+        scrollToPricing();
+        return;
+      }
+
+      // Run the actual scan
+      console.log("Starting scan for repo:", repoUrl);
       try {
         const requestBody = { 
           repoUrl: repoUrl,
           githubToken: githubToken 
         };
         
+        console.log("Invoking scan-secrets function...");
         const { data: scanResults, error: scanError } = await supabase.functions.invoke('scan-secrets', {
           body: requestBody,
         });
@@ -271,6 +280,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
           return;
         }
 
+        console.log("Scan results:", scanResults);
         setSecretScanResults(scanResults);
         
         // Record the scan in history if user is logged in

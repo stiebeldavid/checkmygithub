@@ -108,7 +108,7 @@ serve(async (req) => {
     return new Response(null, { 
       status: 204,
       headers: corsHeaders,
-    })
+    });
   }
 
   try {
@@ -120,7 +120,7 @@ serve(async (req) => {
           status: 405,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
-      )
+      );
     }
 
     // Parse and validate request body
@@ -141,8 +141,9 @@ serve(async (req) => {
       requestData = JSON.parse(rawBody);
       console.log('Parsed request data:', requestData);
 
-      if (!requestData.repoUrl || !requestData.githubToken) {
-        throw new Error('Missing repoUrl or githubToken in request body');
+      // For public repos, GitHub token is optional
+      if (!requestData.repoUrl) {
+        throw new Error('Missing repoUrl in request body');
       }
     } catch (error) {
       console.error('Error parsing request body:', error);
@@ -153,7 +154,7 @@ serve(async (req) => {
         }),
         { 
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         }
       );
     }
@@ -170,49 +171,72 @@ serve(async (req) => {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
-      )
+      );
     }
 
     const [, owner, repo] = match;
     const repoName = repo.replace(/\.git\/?$/, '');
     console.log(`Scanning repository: ${owner}/${repoName}`);
 
-    // Fetch repository contents using GitHub API with OAuth token
+    // Setup headers for GitHub API - with or without token
+    const headers = {
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'Supabase-Edge-Function',
+    };
+    
+    if (githubToken) {
+      headers['Authorization'] = `Bearer ${githubToken}`;
+    }
+
+    // Fetch repository contents using GitHub API
+    console.log('Fetching repo contents with headers:', JSON.stringify(headers, null, 2).replace(/"Authorization": "Bearer [^"]+"/g, '"Authorization": "Bearer ***"'));
     const response = await fetch(`https://api.github.com/repos/${owner}/${repoName}/git/trees/main?recursive=1`, {
-      headers: {
-        'Accept': 'application/vnd.github.v3+json',
-        'Authorization': `Bearer ${githubToken}`,
-        'User-Agent': 'Supabase-Edge-Function',
-      },
+      headers,
     });
 
+    // Try master branch if main doesn't exist
+    let data;
     if (!response.ok) {
-      // Try master branch if main doesn't exist
+      console.log('Main branch not found, trying master branch');
       const masterResponse = await fetch(`https://api.github.com/repos/${owner}/${repoName}/git/trees/master?recursive=1`, {
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'Authorization': `Bearer ${githubToken}`,
-          'User-Agent': 'Supabase-Edge-Function',
-        },
+        headers,
       });
       
       if (!masterResponse.ok) {
-        const errorText = await response.text();
-        console.error('GitHub API error:', response.status, errorText);
+        const errorText = await masterResponse.text();
+        console.error('GitHub API error:', masterResponse.status, errorText);
         return new Response(
           JSON.stringify({ 
-            error: `GitHub API error: ${response.statusText}`,
+            error: `GitHub API error: ${masterResponse.statusText}`,
             details: errorText
           }),
           { 
-            status: response.status,
+            status: masterResponse.status,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
           }
         );
       }
+      data = await masterResponse.json();
+    } else {
+      data = await response.json();
     }
 
-    const data = await response.json();
+    if (!data || !data.tree) {
+      console.error('Invalid response from GitHub API:', data);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Invalid response from GitHub API',
+          details: 'No tree data found in response'
+        }),
+        { 
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    console.log(`Found ${data.tree.length} items in repository tree`);
+    
     const secretResults = [];
     const patternResults = [];
     const textFileExtensions = ['.js', '.ts', '.json', '.yml', '.yaml', '.env', '.txt', '.md', '.jsx', '.tsx', '.html', '.css', '.scss', '.php', '.py', '.rb', '.java'];
@@ -223,43 +247,48 @@ serve(async (req) => {
         console.log('Scanning file:', file.path);
         
         try {
-          // Fetch file content using OAuth token
+          // Fetch file content
           const contentResponse = await fetch(`https://api.github.com/repos/${owner}/${repoName}/contents/${file.path}`, {
-            headers: {
-              'Accept': 'application/vnd.github.v3+json',
-              'Authorization': `Bearer ${githubToken}`,
-              'User-Agent': 'Supabase-Edge-Function',
-            },
+            headers,
           });
 
           if (contentResponse.ok) {
             const contentData = await contentResponse.json();
-            const content = atob(contentData.content);
-
-            // Check for secrets
-            for (const pattern of secretPatterns) {
-              const matches = content.match(pattern.regex);
-              if (matches && matches.length > 0) {
-                secretResults.push({
-                  file: file.path,
-                  ruleID: pattern.name,
-                  severity: pattern.severity,
-                  matches: matches.length,
-                });
-              }
+            if (!contentData.content) {
+              console.log(`No content found for file: ${file.path}`);
+              continue;
             }
             
-            // Check for insecure patterns (would be shown only in pro tier)
-            for (const pattern of insecurePatterns) {
-              const matches = content.match(pattern.regex);
-              if (matches && matches.length > 0) {
-                patternResults.push({
-                  file: file.path,
-                  ruleID: pattern.name,
-                  severity: pattern.severity,
-                  matches: matches.length,
-                });
+            try {
+              const content = atob(contentData.content);
+
+              // Check for secrets
+              for (const pattern of secretPatterns) {
+                const matches = content.match(pattern.regex);
+                if (matches && matches.length > 0) {
+                  secretResults.push({
+                    file: file.path,
+                    ruleID: pattern.name,
+                    severity: pattern.severity,
+                    matches: matches.length,
+                  });
+                }
               }
+              
+              // Check for insecure patterns
+              for (const pattern of insecurePatterns) {
+                const matches = content.match(pattern.regex);
+                if (matches && matches.length > 0) {
+                  patternResults.push({
+                    file: file.path,
+                    ruleID: pattern.name,
+                    severity: pattern.severity,
+                    matches: matches.length,
+                  });
+                }
+              }
+            } catch (decodeError) {
+              console.error(`Error decoding content for file ${file.path}:`, decodeError);
             }
           } else {
             console.error('Error fetching file content:', file.path, contentResponse.status);
@@ -274,16 +303,13 @@ serve(async (req) => {
     let packageJson = null;
     try {
       const packageResponse = await fetch(`https://api.github.com/repos/${owner}/${repoName}/contents/package.json`, {
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'Authorization': `Bearer ${githubToken}`,
-          'User-Agent': 'Supabase-Edge-Function',
-        },
+        headers,
       });
       
       if (packageResponse.ok) {
         const packageData = await packageResponse.json();
         packageJson = JSON.parse(atob(packageData.content));
+        console.log('Found package.json:', packageJson.name);
       }
     } catch (error) {
       console.log('No package.json found or error parsing:', error);

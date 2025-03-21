@@ -96,15 +96,25 @@ const ScanSuccess = () => {
       items: scanResults.results.map((result: any) => ({
         file: result.file,
         type: result.ruleID,
-        severity: 'High',
+        severity: result.severity,
       }))
     } : undefined,
-    dependencies: {
+    dependencies: scanResults?.dependencies ? {
+      count: scanResults.dependencies.length,
+      items: scanResults.dependencies.map((dep: any) => ({
+        name: dep.name,
+        currentVersion: dep.currentVersion,
+        vulnerableVersion: dep.vulnerableVersion,
+        severity: dep.severity,
+      }))
+    } : {
       count: 0,
       items: []
     },
-    patterns: {
-      count: 3,
+    patterns: scanResults?.patterns ? {
+      count: scanResults.patterns.length,
+    } : {
+      count: 0,
     }
   };
   

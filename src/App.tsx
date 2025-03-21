@@ -55,9 +55,7 @@ const App = () => (
           <Route
             path="/:username/:repo_name"
             element={
-              <PrivateRoute>
-                <AutoScanPage />
-              </PrivateRoute>
+              <AutoScanPage />
             }
           />
           {/* Allow public access to scan results */}
