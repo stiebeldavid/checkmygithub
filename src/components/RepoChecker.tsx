@@ -154,8 +154,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
   const checkScanStatus = async (scanId: string) => {
     try {
       const { data, error } = await supabase.functions.invoke('check-scan-status', {
-        method: 'GET',
-        query: { scanId }
+        body: { scanId }
       });
       
       if (error) {
@@ -795,4 +794,3 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
 };
 
 export default RepoChecker;
-
