@@ -8,7 +8,7 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
-  console.log('Received request to trigger TruffleHog GitHub Action:', req.method);
+  console.log('Received request to run TruffleHog scan:', req.method);
   
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -80,88 +80,173 @@ serve(async (req) => {
       );
     }
 
-    const [, targetOwner, targetRepo] = match;
-    const repositoryName = targetRepo.replace(/\.git\/?$/, '');
+    const [, owner, repo] = match;
+    const repoName = repo.replace(/\.git\/?$/, '');
     
-    // GitHub Action trigger configuration
-    const GITHUB_TOKEN = Deno.env.get("GITHUB_ACTION_PAT");
-    const ACTIONS_REPO_OWNER = "check-my-git-hub"; // Your organization
-    const ACTIONS_REPO = "security-scanner"; // Repository where the action is defined
+    // Generate a unique scan ID and temp directory
+    const scanId = crypto.randomUUID();
+    const tempDir = `/tmp/${scanId}`;
     
-    if (!GITHUB_TOKEN) {
-      console.error("GitHub Action PAT not configured");
+    try {
+      // Create temporary directory
+      await Deno.mkdir(tempDir, { recursive: true });
+      
+      console.log(`Created temporary directory: ${tempDir}`);
+      
+      // Clone the repository
+      const cloneCommand = githubToken 
+        ? ["git", "clone", `https://${githubToken}@github.com/${owner}/${repoName}.git`, tempDir]
+        : ["git", "clone", `https://github.com/${owner}/${repoName}.git`, tempDir];
+      
+      console.log(`Cloning repository: ${repoUrl} to ${tempDir}`);
+      const cloneProcess = Deno.run({ 
+        cmd: cloneCommand,
+        stdout: "piped",
+        stderr: "piped" 
+      });
+      
+      const cloneStatus = await cloneProcess.status();
+      
+      if (!cloneStatus.success) {
+        const errorOutput = new TextDecoder().decode(await cloneProcess.stderrOutput());
+        cloneProcess.close();
+        
+        console.error(`Failed to clone repository: ${errorOutput}`);
+        return new Response(
+          JSON.stringify({ 
+            error: 'Failed to clone repository',
+            details: errorOutput
+          }),
+          { 
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+      
+      cloneProcess.close();
+      console.log(`Successfully cloned repository to ${tempDir}`);
+      
+      // Run TruffleHog scan
+      console.log(`Running TruffleHog scan on ${tempDir}`);
+      const truffleHogProcess = Deno.run({
+        cmd: [
+          "trufflehog", 
+          "filesystem", 
+          "--directory", 
+          tempDir,
+          "--json"
+        ],
+        stdout: "piped",
+        stderr: "piped"
+      });
+      
+      const [truffleHogStatus, stdoutRaw, stderrRaw] = await Promise.all([
+        truffleHogProcess.status(),
+        truffleHogProcess.output(),
+        truffleHogProcess.stderrOutput()
+      ]);
+      
+      truffleHogProcess.close();
+      
+      const stdout = new TextDecoder().decode(stdoutRaw);
+      const stderr = new TextDecoder().decode(stderrRaw);
+      
+      console.log("TruffleHog scan completed");
+      
+      // Process TruffleHog results
+      let scanResults = [];
+      
+      if (stdout) {
+        try {
+          // TruffleHog outputs one JSON object per line
+          const lines = stdout.trim().split('\n');
+          scanResults = lines.map(line => JSON.parse(line))
+            .map(result => ({
+              file: result.sourceMetadata?.filename || "Unknown file",
+              line: result.sourceMetadata?.line || 0,
+              ruleID: result.detectorType || "Unknown detector",
+              severity: result.severity || "HIGH",
+              context: result.raw || ""
+            }));
+        } catch (error) {
+          console.error('Error parsing TruffleHog output:', error);
+        }
+      }
+      
+      if (!truffleHogStatus.success && scanResults.length === 0) {
+        console.error(`TruffleHog scan failed: ${stderr}`);
+        
+        return new Response(
+          JSON.stringify({ 
+            error: 'TruffleHog scan failed',
+            details: stderr
+          }),
+          { 
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          }
+        );
+      }
+      
+      // Clean up: remove temp directory
+      try {
+        const rmProcess = Deno.run({
+          cmd: ["rm", "-rf", tempDir],
+          stdout: "piped",
+          stderr: "piped"
+        });
+        await rmProcess.status();
+        rmProcess.close();
+        console.log(`Cleaned up temporary directory: ${tempDir}`);
+      } catch (error) {
+        console.error(`Failed to clean up temporary directory: ${error}`);
+        // Continue execution even if cleanup fails
+      }
+      
+      // Return scan results
+      return new Response(
+        JSON.stringify({
+          scanId,
+          status: "completed",
+          results: {
+            items: scanResults,
+          }
+        }),
+        { 
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+      
+    } catch (error) {
+      console.error(`Error running TruffleHog scan: ${error}`);
+      
+      // Clean up if there was an error
+      try {
+        const rmProcess = Deno.run({
+          cmd: ["rm", "-rf", tempDir],
+          stdout: "piped",
+          stderr: "piped"
+        });
+        await rmProcess.status();
+        rmProcess.close();
+      } catch (cleanupError) {
+        console.error(`Failed to clean up after error: ${cleanupError}`);
+      }
+      
       return new Response(
         JSON.stringify({ 
-          error: 'GitHub Action PAT not configured',
-          details: 'Please set the GITHUB_ACTION_PAT in your Edge Function secrets'
+          error: 'Error running TruffleHog scan',
+          details: error.message
         }),
         { 
           status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
-    }
-
-    // Generate a unique scan ID
-    const scanId = crypto.randomUUID();
-    
-    // Prepare workflow dispatch payload
-    const workflowDispatchPayload = {
-      ref: "main", // Branch where the workflow is located
-      inputs: {
-        target_repo_url: repoUrl,
-        target_owner: targetOwner,
-        target_repo: repositoryName,
-        scan_id: scanId,
-        use_github_token: githubToken ? "true" : "false"
-      }
-    };
-    
-    console.log("Triggering GitHub Action with payload:", JSON.stringify(workflowDispatchPayload));
-    
-    // Trigger the workflow
-    const response = await fetch(
-      `https://api.github.com/repos/${ACTIONS_REPO_OWNER}/${ACTIONS_REPO}/actions/workflows/trufflehog-scan.yml/dispatches`,
-      {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'Authorization': `token ${GITHUB_TOKEN}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(workflowDispatchPayload)
-      }
-    );
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("GitHub API error:", response.status, errorText);
-      return new Response(
-        JSON.stringify({ 
-          error: `GitHub API error: ${response.statusText}`,
-          details: errorText
-        }),
-        { 
-          status: response.status,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       );
     }
     
-    console.log("GitHub Action triggered successfully");
-    
-    // Start polling for results
-    return new Response(
-      JSON.stringify({
-        message: "GitHub Action triggered successfully",
-        scanId: scanId,
-        status: "pending"
-      }),
-      { 
-        status: 202, // Accepted
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    );
   } catch (error) {
     console.error('Error in trigger-trufflehog-action function:', error);
     return new Response(

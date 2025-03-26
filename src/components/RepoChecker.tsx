@@ -46,8 +46,6 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
   const [userRepoStats, setUserRepoStats] = useState<UserRepoStats | null>(null);
   const [session, setSession] = useState<any>(null);
   const [scanCount, setScanCount] = useState<number>(0);
-  const [currentScanId, setCurrentScanId] = useState<string | null>(null);
-  const [scanStatusInterval, setScanStatusInterval] = useState<number | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -269,7 +267,7 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
         return;
       }
 
-      console.log("Starting TruffleHog GitHub Action scan for repo:", repoUrl);
+      console.log("Starting direct TruffleHog scan for repo:", repoUrl);
       
       try {
         const requestBody = { 
@@ -277,63 +275,49 @@ const RepoChecker = ({ initialRepoUrl }: RepoCheckerProps) => {
           githubToken: githubToken 
         };
         
-        const { data: actionData, error: actionError } = await supabase.functions.invoke('trigger-trufflehog-action', {
+        const { data: scanData, error: scanError } = await supabase.functions.invoke('trigger-trufflehog-action', {
           body: requestBody,
         });
         
-        if (actionError) {
-          console.error('Error triggering GitHub Action:', actionError);
-          toast.error('Failed to trigger security scan. Please try again later.');
+        if (scanError) {
+          console.error('Error running TruffleHog scan:', scanError);
+          toast.error('Failed to run security scan. Please try again later.');
           setLoading(false);
           return;
         } 
         
-        console.log("GitHub Action triggered:", actionData);
+        console.log("TruffleHog scan completed:", scanData);
         
-        setCurrentScanId(actionData.scanId);
+        setSecretScanResults(scanData.results);
         
-        const intervalId = window.setInterval(async () => {
-          const status = await checkScanStatus(actionData.scanId);
-          console.log("Scan status:", status);
-          
-          if (status?.status === 'completed') {
-            clearInterval(intervalId);
-            setScanStatusInterval(null);
-            
-            setSecretScanResults(status.results);
-            
-            navigate('/scan-success', { 
-              state: { 
-                repoUrl,
-                repoData: {
-                  name: data.name,
-                  visibility: data.private ? "private" : "public",
-                  stars: data.stargazers_count,
-                  forks: data.forks_count,
-                  description: data.description,
-                  language: data.language,
-                },
-                scanResults: status.results,
-                gitHubAction: true
-              } 
-            });
-            
-            setLoading(false);
-          }
-        }, 5000);
-        
-        setScanStatusInterval(intervalId);
-        
-        if (currentSession) {
-          await supabase.from('scan_history').insert({
-            user_id: currentSession.user.id,
-            repository_url: repoUrl
+        if (scanData.status === 'completed') {
+          navigate('/scan-success', { 
+            state: { 
+              repoUrl,
+              repoData: {
+                name: data.name,
+                visibility: data.private ? "private" : "public",
+                stars: data.stargazers_count,
+                forks: data.forks_count,
+                description: data.description,
+                language: data.language,
+              },
+              scanResults: scanData.results,
+              directScan: true
+            } 
           });
           
-          fetchUserScanCount(currentSession.user.id);
+          if (currentSession) {
+            await supabase.from('scan_history').insert({
+              user_id: currentSession.user.id,
+              repository_url: repoUrl
+            });
+            
+            fetchUserScanCount(currentSession.user.id);
+          }
+          
+          setLoading(false);
         }
-        
-        toast.info('Security scan initiated. This may take a few minutes...');
       } catch (error) {
         console.error('Error during scan:', error);
         toast.error('Failed to complete the security scan. Please try again.');
